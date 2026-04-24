@@ -1,0 +1,2 @@
+Scene_ID,Path_Row,Unused1,Unused2,Unused3,Longitude,Latitude,Confidence
+LC08_TEST2,099065,0,0,0,107.000000,-5.800000,Low

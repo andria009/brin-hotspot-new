@@ -1,0 +1,29 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "gid": 10,
+        "wa": "TEST KECAMATAN",
+        "prov_id": 1,
+        "kab_id": 5
+      },
+      "geometry": {
+        "type": "MultiPolygon",
+        "coordinates": [
+          [
+            [
+              [119.0, -3.0],
+              [121.0, -3.0],
+              [121.0, -1.0],
+              [119.0, -1.0],
+              [119.0, -3.0]
+            ]
+          ]
+        ]
+      }
+    }
+  ]
+}
+

@@ -1,0 +1,50 @@
+[build-system]
+requires = ["setuptools>=80", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "brin-hotspot"
+version = "0.1.0"
+description = "Modernized BRIN hotspot processing pipeline"
+readme = "README.md"
+requires-python = ">=3.14"
+dependencies = [
+  "pydantic>=2.11,<3",
+  "pydantic-settings>=2.9,<3",
+  "psycopg[binary]>=3.2,<4",
+  "python-json-logger>=3.3,<4",
+  "typer>=0.15,<1",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.3,<9",
+  "ruff>=0.11,<1",
+]
+geo = [
+  "numpy>=2.2,<3",
+  "scipy>=1.15,<2",
+  "pyproj>=3.7,<4",
+  "pyshp>=2.3,<3",
+  "pillow>=11,<12",
+  "opencv-python-headless>=4.11,<5",
+]
+hdf = [
+  "pyhdf>=0.11,<1",
+]
+
+[project.scripts]
+hotspot = "brin_hotspot.cli:app"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py314"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

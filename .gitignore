@@ -1,0 +1,35 @@
+.DS_Store
+
+# Local environment
+.env
+.env.*
+!.env.example
+.venv/
+venv/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+dist/
+build/
+*.egg-info/
+
+# Runtime data and generated outputs
+data/input/*
+data/output/*
+logs/*
+!data/input/.gitkeep
+!data/output/.gitkeep
+!logs/.gitkeep
+
+# Local/editor noise
+.idea/
+.vscode/
+*.swp
+*.swo

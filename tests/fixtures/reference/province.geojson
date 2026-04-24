@@ -1,0 +1,25 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "gid": 1,
+        "wa": "TEST PROVINCE"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [119.0, -3.0],
+            [121.0, -3.0],
+            [121.0, -1.0],
+            [119.0, -1.0],
+            [119.0, -3.0]
+          ]
+        ]
+      }
+    }
+  ]
+}
+
