@@ -25,6 +25,7 @@ This project is intentionally separate from the legacy `hotspot` folder. The leg
 - Raster metadata scanner for GeoTIFF footprint registration.
 - Raster tile generation wrapper using `gdal2tiles.py`.
 - Worker orchestration commands for one-shot and repeated ingestion cycles.
+- MODIS HDF4 conversion sidecar that keeps legacy HDF dependencies outside the Python 3.14 worker.
 - Unit tests for configuration, clustering, parsing, reference import, geospatial enrichment, raster parsing, migrations, and ingestion flows.
 
 ## Supported Inputs
@@ -33,8 +34,8 @@ This project is intentionally separate from the legacy `hotspot` folder. The leg
 | --- | --- | --- |
 | `hotspot ingest snpp` | `AFIMG_npp*.txt` | VIIRS text hotspot files. |
 | `hotspot ingest noaa20` | `AFIMG_j01*.txt` | VIIRS text hotspot files. |
-| `hotspot ingest aqua` | `a1*.mod14.hdf` | MODIS HDF fire-pixel files. |
-| `hotspot ingest terra` | `t1*.mod14.hdf` | MODIS HDF fire-pixel files. |
+| `hotspot ingest aqua` | `a1*.mod14.hdf`, `a1*.mod14.hotspots.csv` | MODIS fire-pixel files. Converted CSV is preferred when both exist. |
+| `hotspot ingest terra` | `t1*.mod14.hdf`, `t1*.mod14.hotspots.csv` | MODIS fire-pixel files. Converted CSV is preferred when both exist. |
 | `hotspot ingest landsat8` | `LC08*firepixels.txt`, `LO08*firepixels.txt` | Grouped by acquisition date and WRS path. |
 
 MODIS HDF parsing requires `pyhdf` in runtime environments that process real AQUA/TERRA HDF4 files. The parser imports `pyhdf` lazily so the rest of the CLI and tests remain usable without HDF4 support installed.
@@ -45,7 +46,7 @@ The Docker image installs GDAL and compatible HDF4 native libraries. To try inst
 docker compose build --build-arg INSTALL_HDF=true worker
 ```
 
-Current Python 3.14 status: the optional HDF build reaches native compilation but fails inside the upstream `pyhdf` C wrapper against the current Debian/HDF4 headers. Real AQUA/TERRA HDF ingestion is therefore ported at the application layer but still needs a Python 3.14-compatible HDF4 reader strategy before production use.
+Current Python 3.14 status: the optional HDF build reaches native compilation but fails inside the upstream `pyhdf` C wrapper against the current Debian/HDF4 headers. To keep the main application on Python 3.14, raw HDF4 conversion is isolated in a `modis-converter` sidecar image that writes neutral CSV files for the main ingestion pipeline.
 
 ## Architecture
 
@@ -156,6 +157,14 @@ hotspot ingest aqua --input-dir data/input/aqua
 hotspot ingest terra --input-dir data/input/terra
 ```
 
+If using raw MODIS HDF4 files, convert them first:
+
+```bash
+docker compose run --rm modis-converter --input-dir /app/data/input --output-dir /app/data/input
+```
+
+The converter writes `*.mod14.hotspots.csv` files next to the matching input tree. The main AQUA/TERRA ingestion commands prefer converted CSV files over matching raw HDF files, which avoids duplicate processing when both are present.
+
 Run Landsat 8 ingestion:
 
 ```bash
@@ -260,8 +269,11 @@ The current implementation has been verified with:
 PYENV_VERSION=hotspot pytest -o cache_dir=/tmp/hotspot-new-pytest-cache
 PYENV_VERSION=hotspot RUFF_CACHE_DIR=/tmp/hotspot-new-ruff-cache ruff check .
 docker compose build worker
+docker compose build modis-converter
+docker compose run --rm modis-converter --input-dir /app/data/input --output-dir /app/data/output/modis-converted
 docker compose run --rm worker hotspot db migrate
 docker compose run --rm worker hotspot health --database
+docker compose run --rm --volume /path/to/hotspot-new/tests:/app/tests:ro worker hotspot ingest aqua --input-dir /app/tests/fixtures/aqua --no-database
 docker compose run --rm --volume /path/to/hotspot-new/tests:/app/tests:ro worker hotspot ingest landsat8 --input-dir /app/tests/fixtures/landsat8 --database --enrich
 docker compose run --rm --volume /path/to/hotspot-new/tests:/app/tests:ro --env HOTSPOT_INPUT_DIR=/app/tests/fixtures worker hotspot worker run-once --satellite noaa20 --no-database
 docker compose run --rm worker hotspot admin runs --limit 5
@@ -272,21 +284,41 @@ docker compose run --rm --volume /path/to/hotspot-new/tests:/app/tests:ro worker
 
 Latest local result:
 
-- `pytest`: 33 passed.
+- `pytest`: 38 passed.
 - `ruff check .`: passed.
 - Docker worker image rebuilt successfully.
+- Docker MODIS converter image built successfully with `pyhdf` isolated on Python 3.12/bookworm.
+- Docker MODIS converter empty-tree smoke passed.
+- Docker AQUA converted CSV ingestion smoke passed.
 - Docker migrations applied successfully and then skipped on repeat.
 - Docker/PostGIS Landsat 8 persistence smoke passed.
 - Docker NOAA20 worker smoke passed.
 - Docker admin run/source status commands passed.
 - Docker raster scanner smoke passed.
 - Docker raster tile smoke passed on an empty fixture tree.
-- Optional Docker HDF build failed at `pyhdf` native compilation under Python 3.14, after HDF4 libraries and `gcc` were installed.
+- Optional main-worker HDF build failed at `pyhdf` native compilation under Python 3.14, after HDF4 libraries and `gcc` were installed.
+- MODIS HDF conversion is now isolated in the `modis-converter` sidecar path; it still needs a real AQUA/TERRA HDF sample smoke test.
 - Docker Compose stack was shut down afterward with `docker compose down`.
 
 ## What Is Next
 
-- Resolve the Python 3.14 MODIS HDF reader blocker by patching or replacing `pyhdf`, pinning a compatible build image for HDF conversion, or isolating MODIS HDF extraction in a sidecar converter.
-- Add real sample fixtures for AQUA/TERRA HDF files once available, then run end-to-end parse and PostGIS persistence smoke tests for both.
-- Add a real GeoTIFF fixture and assert generated tile output beyond the current command/smoke coverage.
-- Add operational observability around log retention and alerting/failure summaries.
+Priority validation:
+
+- Get real AQUA and TERRA HDF4 samples and use them to verify the `modis-converter` output against expected fire-pixel latitude, longitude, confidence, observation time, and source metadata.
+- Add real AQUA and TERRA converted CSV and HDF4 sample fixtures, then verify conversion, parse, enrichment, clustering, CSV export, and PostGIS persistence end to end.
+- Add a real GeoTIFF fire-index fixture and assert actual XYZ tile output, not only command construction and empty-tree smoke checks.
+- Validate real province, kabupaten, kecamatan, and persistent-anomaly GeoJSON imports against the production schema and enrichment queries.
+- Tune duplicate filtering buffers and clustering behavior using representative SNPP, NOAA20, MODIS, and Landsat 8 data.
+
+Operations:
+
+- Add worker deployment guidance for production-style schedules, expected volume mounts, restart policy, and operational runbooks.
+- Add log retention and failure summary reporting around ingestion runs and source-file failures.
+- Add backup/restore notes for the hotspot and raster PostgreSQL databases.
+- Add environment-specific configuration examples for local, staging, and production deployments.
+
+Developer experience:
+
+- Add CI commands for lint, tests, Docker build, migration smoke checks, and a no-database ingestion smoke.
+- Add a small fixture-generation guide so new sample inputs can be added without leaking production data.
+- Consider a leaner Docker image or multi-stage build for the worker and MODIS converter images.

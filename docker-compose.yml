@@ -45,5 +45,20 @@ services:
         condition: service_healthy
     command: ["hotspot", "health"]
 
+  modis-converter:
+    build:
+      context: .
+      dockerfile: Dockerfile.modis-converter
+    volumes:
+      - ./data/input:/app/data/input
+      - ./data/output/modis-converted:/app/data/output/modis-converted
+    command:
+      [
+        "--input-dir",
+        "/app/data/input",
+        "--output-dir",
+        "/app/data/output/modis-converted",
+      ]
+
 volumes:
   postgres-data:

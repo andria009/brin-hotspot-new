@@ -12,7 +12,7 @@ from brin_hotspot.satellites.modis import (
     TERRA_SETTINGS,
     find_aqua_files,
     find_terra_files,
-    parse_modis_hdf_file,
+    parse_modis_file,
 )
 
 
@@ -65,7 +65,7 @@ def _ingest_modis(
         find_sources=lambda source_dir: [
             SourceItem.single(source_file) for source_file in find_files(source_dir)
         ],
-        parse_source=lambda source: parse_modis_hdf_file(source.path, satellite_settings),
+        parse_source=lambda source: parse_modis_file(source.path, satellite_settings),
         input_dir=input_dir,
         persist=persist,
         enrich=enrich,
