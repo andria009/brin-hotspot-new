@@ -73,7 +73,7 @@ The shared ingestion flow is:
 6. Cluster detections using satellite-specific resolution rules.
 7. Write cluster and pixel CSV outputs for each source item.
 8. Optionally persist each source item independently into PostGIS.
-9. Mark each source file `completed` only after its clusters and pixels are stored.
+9. Mark each source file `completed` only after persistence succeeds, including valid sources whose detections were fully filtered by enrichment rules.
 
 This source-level checkpointing is important for operational runs. If a long ingestion is interrupted, files already marked `completed` are skipped on the next run, stale `running` files are reset to `pending`, and remaining or failed files can be retried without replaying the whole tree.
 
@@ -90,7 +90,7 @@ SNPP and NOAA20 use the same VIIRS active-fire text flow:
 5. With `--enrich`, each pixel is matched against the imported PostGIS province, kabupaten, and kecamatan polygons. Pixels outside the imported boundary set remain valid hotspot pixels but keep null administrative fields.
 6. Persistent anomaly filtering and duplicate filtering are applied when enrichment/database mode is enabled.
 7. Remaining pixels are clustered using satellite-specific spatial resolution settings.
-8. Cluster and pixel CSV files are written, then clusters and pixels are persisted to PostGIS. The source file is marked `completed` only after persistence succeeds.
+8. Cluster and pixel CSV files are written, then clusters and pixels are persisted to PostGIS. The source file is marked `completed` only after persistence succeeds, even when all detections were filtered as persistent anomalies or duplicates.
 
 AQUA uses a two-stage MODIS flow because production AQUA inputs are HDF4:
 
@@ -496,6 +496,10 @@ docker compose logs --tail 200 modis-converter-service
 Copy `.env.example` to `.env` and adjust values for the local environment.
 
 No credentials should be committed to this repository.
+
+## License
+
+This project is licensed under the BSD 3-Clause License. See `LICENSE`.
 
 ## Verification Status
 

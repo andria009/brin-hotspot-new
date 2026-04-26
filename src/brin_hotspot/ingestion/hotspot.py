@@ -278,6 +278,10 @@ def _process_source(
                     source_files=source.files,
                     clusters=source_clusters,
                     pixel_radius_meters=pixel_radius_meters,
+                    source_metadata={
+                        detection.source_file: (detection.scene_id, detection.observed_at)
+                        for detection in parsed
+                    },
                     finish_run=False,
                 )
             )

@@ -36,9 +36,11 @@ class HotspotRepository:
         source_files: tuple[Path, ...],
         clusters: list[HotspotCluster],
         pixel_radius_meters: int,
+        source_metadata: dict[Path, tuple[str, datetime]] | None = None,
         finish_run: bool = True,
     ) -> tuple[int, int]:
-        source_metadata = _source_metadata(clusters)
+        metadata = _source_metadata(clusters)
+        metadata.update(source_metadata or {})
         with psycopg.connect(self._database.dsn, connect_timeout=5) as connection:
             with connection.transaction():
                 with connection.cursor() as cursor:
@@ -59,7 +61,7 @@ class HotspotRepository:
                             pixel_count += 1
 
                     for source_file in source_files:
-                        scene_id, observed_at = source_metadata.get(source_file, (None, None))
+                        scene_id, observed_at = metadata.get(source_file, (None, None))
                         self._mark_source_file_completed(
                             cursor,
                             satellite,

@@ -160,6 +160,69 @@ def test_ingest_snpp_can_enrich_before_persisting(tmp_path, monkeypatch):
     assert persisted_cluster.detections[0].location is not None
 
 
+def test_ingest_snpp_completes_source_when_enrichment_filters_all(tmp_path, monkeypatch):
+    calls = {}
+
+    class FakeGeoRepository:
+        def __init__(self, database):
+            pass
+
+        def enrich_detection(self, detection, *, duplicate_buffer_degrees):
+            return None
+
+    class FakeRepository:
+        def __init__(self, database):
+            pass
+
+        def source_file_completed(self, satellite, path):
+            return False
+
+        def reset_running_source_files(self, *, satellite, message):
+            return 0
+
+        def start_run(self, run_id, satellite, source_path=None):
+            pass
+
+        def finish_run(self, run_id, status, message=None):
+            calls["finish_run"] = (run_id, status, message)
+
+        def mark_source_file_running(self, satellite, path):
+            calls.setdefault("running_sources", []).append(path)
+
+        def mark_source_file_failed(self, satellite, path, message):
+            calls.setdefault("failed_sources", []).append((path, message))
+
+        def persist_ingestion(self, **kwargs):
+            calls["persist_kwargs"] = kwargs
+            return 0, 0
+
+    monkeypatch.setattr("brin_hotspot.ingestion.hotspot.GeoRepository", FakeGeoRepository)
+    monkeypatch.setattr("brin_hotspot.ingestion.hotspot.HotspotRepository", FakeRepository)
+    settings = Settings(
+        paths=PathSettings(
+            input_dir=tmp_path / "input",
+            output_dir=tmp_path / "output",
+            log_dir=tmp_path / "logs",
+        )
+    )
+
+    summary = ingest_snpp(
+        settings,
+        input_dir=Path("tests/fixtures/snpp"),
+        persist=True,
+        enrich=True,
+    )
+
+    assert summary.parsed_count == 3
+    assert summary.filtered_count == 3
+    assert summary.cluster_count == 0
+    assert summary.persisted_cluster_count == 0
+    assert summary.persisted_pixel_count == 0
+    assert calls["persist_kwargs"]["clusters"] == []
+    assert len(calls["persist_kwargs"]["source_metadata"]) == 1
+    assert "failed_sources" not in calls
+
+
 def test_ingest_snpp_skips_completed_source_files(tmp_path, monkeypatch):
     class FakeRepository:
         def __init__(self, database):
