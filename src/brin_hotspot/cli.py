@@ -344,6 +344,38 @@ def replay_source_command(
     typer.echo(f"ok satellite={satellite} status=pending path={path}")
 
 
+@admin_app.command("replay-satellite")
+def replay_satellite_command(
+    satellite: Annotated[str, typer.Option("--satellite")],
+    status: Annotated[str | None, typer.Option("--status")] = "completed",
+) -> None:
+    """Mark many source files as pending so they can be reprocessed."""
+    from brin_hotspot.repositories.operations_repository import OperationsRepository
+
+    settings = _bootstrap()
+    updated = OperationsRepository(settings.hotspot_database).mark_satellite_sources_pending(
+        satellite=satellite,
+        status=status,
+    )
+    status_text = status if status is not None else "any"
+    typer.echo(f"ok satellite={satellite} previous_status={status_text} reset={updated}")
+
+
+@admin_app.command("reset-running")
+def reset_running_sources_command(
+    satellite: Annotated[str | None, typer.Option("--satellite")] = None,
+) -> None:
+    """Reset interrupted running source files to pending for retry."""
+    from brin_hotspot.repositories.operations_repository import OperationsRepository
+
+    settings = _bootstrap()
+    updated = OperationsRepository(settings.hotspot_database).reset_running_sources(
+        satellite=satellite,
+        message="reset by operator",
+    )
+    typer.echo(f"ok reset={updated}")
+
+
 @raster_app.command("scan")
 def scan_rasters_command(
     input_dir: Annotated[Path, typer.Option("--input-dir", exists=True, file_okay=False)],
@@ -402,6 +434,13 @@ def worker_run_once_command(
         list[str] | None,
         typer.Option("--satellite", help="Satellite to process. Repeatable."),
     ] = None,
+    input_overrides: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--input",
+            help="Override one satellite input as satellite=/path. Repeatable.",
+        ),
+    ] = None,
     persist: Annotated[
         bool,
         typer.Option("--database/--no-database", help="Persist clusters and pixels to PostGIS."),
@@ -424,6 +463,7 @@ def worker_run_once_command(
     summaries = run_ingestion_cycle(
         settings,
         satellites=tuple(satellites or ["snpp", "noaa20", "aqua", "terra", "landsat8"]),
+        input_dirs=_parse_worker_input_dirs(input_overrides),
         persist=persist,
         enrich=enrich,
     )
@@ -437,6 +477,13 @@ def worker_loop_command(
         list[str] | None,
         typer.Option("--satellite", help="Satellite to process. Repeatable."),
     ] = None,
+    input_overrides: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--input",
+            help="Override one satellite input as satellite=/path. Repeatable.",
+        ),
+    ] = None,
     persist: Annotated[
         bool,
         typer.Option("--database/--no-database", help="Persist clusters and pixels to PostGIS."),
@@ -449,7 +496,17 @@ def worker_loop_command(
         ),
     ] = False,
     interval_seconds: Annotated[int, typer.Option("--interval-seconds", min=1)] = 180,
-    max_cycles: Annotated[int, typer.Option("--max-cycles", min=1)] = 1,
+    max_cycles: Annotated[
+        int,
+        typer.Option("--max-cycles", min=0, help="Number of cycles. Use 0 to run forever."),
+    ] = 0,
+    continue_on_error: Annotated[
+        bool,
+        typer.Option(
+            "--continue-on-error/--fail-fast",
+            help="Continue with later satellites and cycles after a satellite error.",
+        ),
+    ] = True,
 ) -> None:
     """Run repeated ingestion cycles with a fixed sleep interval."""
     from brin_hotspot.worker import run_worker_loop
@@ -461,14 +518,27 @@ def worker_loop_command(
     summary = run_worker_loop(
         settings,
         satellites=tuple(satellites or ["snpp", "noaa20", "aqua", "terra", "landsat8"]),
+        input_dirs=_parse_worker_input_dirs(input_overrides),
         persist=persist,
         enrich=enrich,
         interval_seconds=interval_seconds,
-        max_cycles=max_cycles,
+        max_cycles=max_cycles or None,
+        continue_on_error=continue_on_error,
     )
     typer.echo(
         f"ok cycles={summary.cycle_count} ingestions={len(summary.ingestion_summaries)}"
     )
+
+
+def _parse_worker_input_dirs(input_overrides: list[str] | None) -> dict[str, Path]:
+    input_dirs: dict[str, Path] = {}
+    for value in input_overrides or []:
+        satellite, separator, path = value.partition("=")
+        if not separator or not satellite or not path:
+            typer.echo("--input must use satellite=/path format", err=True)
+            raise typer.Exit(2)
+        input_dirs[satellite.strip().lower()] = Path(path)
+    return input_dirs
 
 
 def _echo_records(rows: list[dict[str, Any]]) -> None:

@@ -89,3 +89,41 @@ class OperationsRepository:
                         (satellite, path),
                     )
                     return cursor.rowcount > 0
+
+    def mark_satellite_sources_pending(self, *, satellite: str, status: str | None = None) -> int:
+        with psycopg.connect(self._database.dsn, connect_timeout=5) as connection:
+            with connection.transaction():
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        """
+                        UPDATE source_files
+                        SET status = 'pending',
+                            processed_at = NULL,
+                            last_error = NULL
+                        WHERE satellite = %s
+                          AND (%s::text IS NULL OR status = %s);
+                        """,
+                        (satellite, status, status),
+                    )
+                    return cursor.rowcount
+
+    def reset_running_sources(
+        self,
+        *,
+        satellite: str | None = None,
+        message: str = "reset from running state",
+    ) -> int:
+        with psycopg.connect(self._database.dsn, connect_timeout=5) as connection:
+            with connection.transaction():
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        """
+                        UPDATE source_files
+                        SET status = 'pending',
+                            last_error = %s
+                        WHERE status = 'running'
+                          AND (%s::text IS NULL OR satellite = %s);
+                        """,
+                        (message, satellite, satellite),
+                    )
+                    return cursor.rowcount

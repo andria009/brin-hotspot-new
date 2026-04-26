@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -22,6 +23,7 @@ class ViirsTextSettings:
 
 SNPP_SETTINGS = ViirsTextSettings(satellite="snpp", file_glob="AFIMG_npp*.txt")
 NOAA20_SETTINGS = ViirsTextSettings(satellite="noaa20", file_glob="AFIMG_j01*.txt")
+_VIIRS_FILENAME_TIME_RE = re.compile(r"_d(?P<date>\d{8})_t(?P<time>\d{6})(?P<fraction>\d*)")
 
 
 def parse_viirs_text_file(
@@ -68,6 +70,14 @@ def parse_noaa20_file(path: PathLike) -> list[HotspotDetection]:
 
 def parse_observed_at_from_path(path: PathLike) -> datetime:
     path = Path(path)
+    filename_match = _VIIRS_FILENAME_TIME_RE.search(path.name)
+    if filename_match:
+        fraction = filename_match.group("fraction")[:6].ljust(6, "0")
+        return datetime.strptime(
+            f"{filename_match.group('date')}{filename_match.group('time')}{fraction}",
+            "%Y%m%d%H%M%S%f",
+        )
+
     parts = path.parts
     for index in range(len(parts) - 4, -1, -1):
         candidate = parts[index : index + 4]

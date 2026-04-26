@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -24,22 +24,34 @@ def run_ingestion_cycle(
     settings: Settings,
     *,
     satellites: tuple[str, ...] = ("snpp", "noaa20", "aqua", "terra", "landsat8"),
+    input_dirs: Mapping[str, Path] | None = None,
     persist: bool = False,
     enrich: bool = False,
+    continue_on_error: bool = False,
 ) -> tuple[IngestionSummary, ...]:
     summaries: list[IngestionSummary] = []
     for satellite in satellites:
         ingest = _ingest_function(satellite)
+        input_dir = (input_dirs or {}).get(satellite, settings.paths.input_dir / satellite)
         logger.info(
             "worker_satellite_started",
-            extra={"satellite": satellite, "persist": persist, "enrich": enrich},
+            extra={
+                "satellite": satellite,
+                "input_dir": str(input_dir),
+                "persist": persist,
+                "enrich": enrich,
+            },
         )
-        summary = ingest(
-            settings,
-            settings.paths.input_dir / satellite,
-            persist=persist,
-            enrich=enrich,
-        )
+        try:
+            summary = ingest(settings, input_dir, persist=persist, enrich=enrich)
+        except Exception:
+            logger.exception(
+                "worker_satellite_failed",
+                extra={"satellite": satellite, "input_dir": str(input_dir)},
+            )
+            if continue_on_error:
+                continue
+            raise
         summaries.append(summary)
         logger.info(
             "worker_satellite_completed",
@@ -58,32 +70,45 @@ def run_worker_loop(
     settings: Settings,
     *,
     satellites: tuple[str, ...],
+    input_dirs: Mapping[str, Path] | None = None,
     persist: bool,
     enrich: bool,
     interval_seconds: int,
-    max_cycles: int,
+    max_cycles: int | None,
+    continue_on_error: bool = True,
 ) -> WorkerRunSummary:
     summaries: list[IngestionSummary] = []
-    for cycle in range(max_cycles):
+    cycle = 0
+    while max_cycles is None or cycle < max_cycles:
+        cycle += 1
         logger.info(
             "worker_cycle_started",
-            extra={"cycle": cycle + 1, "max_cycles": max_cycles},
+            extra={"cycle": cycle, "max_cycles": max_cycles},
         )
-        summaries.extend(
-            run_ingestion_cycle(
-                settings,
-                satellites=satellites,
-                persist=persist,
-                enrich=enrich,
+        try:
+            summaries.extend(
+                run_ingestion_cycle(
+                    settings,
+                    satellites=satellites,
+                    input_dirs=input_dirs,
+                    persist=persist,
+                    enrich=enrich,
+                    continue_on_error=continue_on_error,
+                )
             )
-        )
+        except KeyboardInterrupt:
+            logger.warning("worker_loop_interrupted", extra={"cycle": cycle})
+            return WorkerRunSummary(
+                cycle_count=cycle - 1,
+                ingestion_summaries=tuple(summaries),
+            )
         logger.info(
             "worker_cycle_completed",
-            extra={"cycle": cycle + 1, "max_cycles": max_cycles},
+            extra={"cycle": cycle, "max_cycles": max_cycles},
         )
-        if cycle < max_cycles - 1:
+        if max_cycles is None or cycle < max_cycles:
             time.sleep(interval_seconds)
-    return WorkerRunSummary(cycle_count=max_cycles, ingestion_summaries=tuple(summaries))
+    return WorkerRunSummary(cycle_count=cycle, ingestion_summaries=tuple(summaries))
 
 
 def _ingest_function(satellite: str):

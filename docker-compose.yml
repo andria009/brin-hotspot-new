@@ -37,21 +37,80 @@ services:
       HOTSPOT_OUTPUT_DIR: ${HOTSPOT_OUTPUT_DIR:-/app/data/output}
       HOTSPOT_LOG_DIR: ${HOTSPOT_LOG_DIR:-/app/logs}
     volumes:
-      - ./data/input:/app/data/input
       - ./data/output:/app/data/output
+      - ./data/reference:/app/data/reference:ro
       - ./logs:/app/logs
+      - /mnt/geomimo-data/DataProses/Suomi-NPP:/app/data/input/snpp:ro
+      - /mnt/geomimo-data/DataProses/NOAA-20:/app/data/input/noaa20:ro
+      - /mnt/geomimo-data/DataProses/AQUA:/app/data/input/aqua:ro
+      - /mnt/geomimo-data/DataProses/Terra:/app/data/input/terra:ro
     depends_on:
       db:
         condition: service_healthy
     command: ["hotspot", "health"]
+
+  worker-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    profiles: ["service"]
+    restart: unless-stopped
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      HOTSPOT_ENV: ${HOTSPOT_ENV:-development}
+      HOTSPOT_LOG_LEVEL: ${HOTSPOT_LOG_LEVEL:-INFO}
+      HOTSPOT_LOG_FORMAT: ${HOTSPOT_LOG_FORMAT:-json}
+      HOTSPOT_DB_HOST: ${HOTSPOT_DB_HOST:-db}
+      HOTSPOT_DB_PORT: ${HOTSPOT_DB_PORT:-5432}
+      HOTSPOT_DB_NAME: ${HOTSPOT_DB_NAME:-hotspot}
+      HOTSPOT_DB_USER: ${HOTSPOT_DB_USER:-hotspot}
+      HOTSPOT_DB_PASSWORD: ${HOTSPOT_DB_PASSWORD:-hotspot_dev}
+      HOTSPOT_RASTER_DB_NAME: ${HOTSPOT_RASTER_DB_NAME:-raster}
+      HOTSPOT_INPUT_DIR: ${HOTSPOT_INPUT_DIR:-/app/data/input}
+      HOTSPOT_OUTPUT_DIR: ${HOTSPOT_OUTPUT_DIR:-/app/data/output}
+      HOTSPOT_LOG_DIR: ${HOTSPOT_LOG_DIR:-/app/logs}
+    volumes:
+      - ./data/output:/app/data/output
+      - ./data/reference:/app/data/reference:ro
+      - ./logs:/app/logs
+      - /mnt/geomimo-data/DataProses/Suomi-NPP:/app/data/input/snpp:ro
+      - /mnt/geomimo-data/DataProses/NOAA-20:/app/data/input/noaa20:ro
+      - /mnt/geomimo-data/DataProses/AQUA:/app/data/input/aqua:ro
+      - /mnt/geomimo-data/DataProses/Terra:/app/data/input/terra:ro
+    depends_on:
+      db:
+        condition: service_healthy
+    command:
+      [
+        "hotspot",
+        "worker",
+        "loop",
+        "--satellite",
+        "snpp",
+        "--satellite",
+        "noaa20",
+        "--satellite",
+        "aqua",
+        "--input",
+        "aqua=/app/data/output/modis-converted/aqua",
+        "--database",
+        "--enrich",
+        "--interval-seconds",
+        "${HOTSPOT_WORKER_INTERVAL_SECONDS:-300}",
+        "--max-cycles",
+        "${HOTSPOT_WORKER_MAX_CYCLES:-0}",
+      ]
 
   modis-converter:
     build:
       context: .
       dockerfile: Dockerfile.modis-converter
     volumes:
-      - ./data/input:/app/data/input
       - ./data/output/modis-converted:/app/data/output/modis-converted
+      - /mnt/geomimo-data/DataProses/AQUA:/app/data/input/aqua:ro
+      - /mnt/geomimo-data/DataProses/Terra:/app/data/input/terra:ro
     command:
       [
         "--input-dir",
@@ -59,6 +118,30 @@ services:
         "--output-dir",
         "/app/data/output/modis-converted",
       ]
+
+  modis-converter-service:
+    build:
+      context: .
+      dockerfile: Dockerfile.modis-converter
+    profiles: ["service"]
+    restart: unless-stopped
+    environment:
+      MODIS_CONVERTER_INTERVAL_SECONDS: ${MODIS_CONVERTER_INTERVAL_SECONDS:-300}
+    volumes:
+      - ./data/output/modis-converted:/app/data/output/modis-converted
+      - /mnt/geomimo-data/DataProses/AQUA:/app/data/input/aqua:ro
+      - /mnt/geomimo-data/DataProses/Terra:/app/data/input/terra:ro
+    entrypoint: ["sh", "-lc"]
+    command:
+      - |
+        while true; do
+          python /app/tools/modis_converter/convert_modis_hdf.py \
+            --input-dir /app/data/input/aqua \
+            --output-dir /app/data/output/modis-converted/aqua \
+            --satellite aqua \
+            --skip-existing
+          sleep "$${MODIS_CONVERTER_INTERVAL_SECONDS:-300}"
+        done
 
 volumes:
   postgres-data:

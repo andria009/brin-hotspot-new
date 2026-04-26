@@ -36,6 +36,7 @@ class HotspotRepository:
         source_files: tuple[Path, ...],
         clusters: list[HotspotCluster],
         pixel_radius_meters: int,
+        finish_run: bool = True,
     ) -> tuple[int, int]:
         source_metadata = _source_metadata(clusters)
         with psycopg.connect(self._database.dsn, connect_timeout=5) as connection:
@@ -67,8 +68,84 @@ class HotspotRepository:
                             observed_at=observed_at,
                         )
 
-                    self._finish_run(cursor, run_id, "completed", None)
+                    if finish_run:
+                        self._finish_run(cursor, run_id, "completed", None)
                     return cluster_count, pixel_count
+
+    def start_run(self, run_id: UUID, satellite: str, source_path: str | None = None) -> None:
+        with psycopg.connect(self._database.dsn, connect_timeout=5) as connection:
+            with connection.transaction():
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        """
+                        INSERT INTO ingestion_runs (id, satellite, status, source_path)
+                        VALUES (%s, %s, 'running', %s)
+                        ON CONFLICT (id) DO UPDATE SET
+                            status = 'running',
+                            finished_at = NULL,
+                            message = NULL;
+                        """,
+                        (run_id, satellite, source_path),
+                    )
+
+    def finish_run(self, run_id: UUID, status: str, message: str | None = None) -> None:
+        with psycopg.connect(self._database.dsn, connect_timeout=5) as connection:
+            with connection.transaction():
+                with connection.cursor() as cursor:
+                    self._finish_run(cursor, run_id, status, message)
+
+    def reset_running_source_files(
+        self,
+        *,
+        satellite: str,
+        message: str = "reset from stale running state",
+    ) -> int:
+        with psycopg.connect(self._database.dsn, connect_timeout=5) as connection:
+            with connection.transaction():
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        """
+                        UPDATE source_files
+                        SET status = 'pending',
+                            last_error = %s
+                        WHERE satellite = %s
+                          AND status = 'running';
+                        """,
+                        (message, satellite),
+                    )
+                    return cursor.rowcount
+
+    def mark_source_file_running(self, satellite: str, source_file: Path) -> None:
+        with psycopg.connect(self._database.dsn, connect_timeout=5) as connection:
+            with connection.transaction():
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        """
+                        INSERT INTO source_files (satellite, path, status)
+                        VALUES (%s, %s, 'running')
+                        ON CONFLICT (satellite, path)
+                        DO UPDATE SET
+                            status = 'running',
+                            last_error = NULL;
+                        """,
+                        (satellite, str(source_file)),
+                    )
+
+    def mark_source_file_failed(self, satellite: str, source_file: Path, message: str) -> None:
+        with psycopg.connect(self._database.dsn, connect_timeout=5) as connection:
+            with connection.transaction():
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        """
+                        INSERT INTO source_files (satellite, path, status, last_error)
+                        VALUES (%s, %s, 'failed', %s)
+                        ON CONFLICT (satellite, path)
+                        DO UPDATE SET
+                            status = 'failed',
+                            last_error = EXCLUDED.last_error;
+                        """,
+                        (satellite, str(source_file), message),
+                    )
 
     def mark_run_failed(self, run_id: UUID, satellite: str, message: str) -> None:
         with psycopg.connect(self._database.dsn, connect_timeout=5) as connection:
@@ -161,7 +238,16 @@ class HotspotRepository:
                     %s,
                     %s
                 )
-                ON CONFLICT (satellite, coordinate, observed_at) DO NOTHING
+                ON CONFLICT (satellite, coordinate, observed_at) DO UPDATE
+                SET
+                    conf_lvl = EXCLUDED.conf_lvl,
+                    provinsi = COALESCE(EXCLUDED.provinsi, hotspot_cluster.provinsi),
+                    kabupaten = COALESCE(EXCLUDED.kabupaten, hotspot_cluster.kabupaten),
+                    kecamatan = COALESCE(EXCLUDED.kecamatan, hotspot_cluster.kecamatan),
+                    radius = EXCLUDED.radius,
+                    source_station = EXCLUDED.source_station,
+                    source_file = EXCLUDED.source_file,
+                    scene_id = EXCLUDED.scene_id
                 RETURNING cid
             )
             SELECT cid FROM inserted
@@ -236,7 +322,16 @@ class HotspotRepository:
                 %s
             )
             ON CONFLICT (satellite, coordinate, observed_at) DO UPDATE
-            SET cluster_id = EXCLUDED.cluster_id;
+            SET
+                conf_lvl = EXCLUDED.conf_lvl,
+                cluster_id = EXCLUDED.cluster_id,
+                provinsi = COALESCE(EXCLUDED.provinsi, hotspot_pixel.provinsi),
+                kabupaten = COALESCE(EXCLUDED.kabupaten, hotspot_pixel.kabupaten),
+                kecamatan = COALESCE(EXCLUDED.kecamatan, hotspot_pixel.kecamatan),
+                source_station = EXCLUDED.source_station,
+                radius = EXCLUDED.radius,
+                source_file = EXCLUDED.source_file,
+                scene_id = EXCLUDED.scene_id;
             """,
             (
                 detection.satellite,

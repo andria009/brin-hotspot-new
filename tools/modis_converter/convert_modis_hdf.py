@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import argparse
 import csv
-from collections.abc import Iterable
+import sys
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -13,6 +14,8 @@ class ConversionResult:
     source: Path
     output: Path
     row_count: int
+    status: str = "converted"
+    message: str | None = None
 
 
 def main() -> None:
@@ -27,15 +30,30 @@ def main() -> None:
         default="all",
         help="Satellite input family to convert.",
     )
+    parser.add_argument(
+        "--skip-existing",
+        action="store_true",
+        help="Skip outputs that are newer than or as new as their source HDF file.",
+    )
     args = parser.parse_args()
 
     results = convert_tree(
         input_dir=args.input_dir,
         output_dir=args.output_dir,
         satellite=args.satellite,
+        skip_existing=args.skip_existing,
     )
     for result in results:
-        print(f"ok source={result.source} output={result.output} rows={result.row_count}")
+        if result.status == "failed":
+            print(
+                f"failed source={result.source} output={result.output} "
+                f"rows={result.row_count} error={result.message}",
+                file=sys.stderr,
+            )
+        elif result.status == "skipped":
+            print(f"skipped source={result.source} output={result.output} rows=0")
+        else:
+            print(f"ok source={result.source} output={result.output} rows={result.row_count}")
 
 
 def convert_tree(
@@ -43,6 +61,7 @@ def convert_tree(
     input_dir: Path,
     output_dir: Path,
     satellite: str = "all",
+    skip_existing: bool = False,
 ) -> list[ConversionResult]:
     prefixes = {
         "aqua": ("a1",),
@@ -55,14 +74,50 @@ def convert_tree(
         for path in input_dir.rglob(f"{prefix}*.mod14.hdf")
         if path.is_file()
     )
-    return [convert_file(path, input_dir=input_dir, output_dir=output_dir) for path in sources]
+    results: list[ConversionResult] = []
+    for path in sources:
+        try:
+            results.append(
+                convert_file(
+                    path,
+                    input_dir=input_dir,
+                    output_dir=output_dir,
+                    skip_existing=skip_existing,
+                )
+            )
+        except Exception as exc:
+            output_path = converted_output_path(path, input_dir=input_dir, output_dir=output_dir)
+            results.append(
+                ConversionResult(
+                    source=path,
+                    output=output_path,
+                    row_count=0,
+                    status="failed",
+                    message=str(exc),
+                )
+            )
+    return results
 
 
-def convert_file(path: Path, *, input_dir: Path, output_dir: Path) -> ConversionResult:
+def convert_file(
+    path: Path,
+    *,
+    input_dir: Path,
+    output_dir: Path,
+    skip_existing: bool = False,
+) -> ConversionResult:
     output_path = converted_output_path(path, input_dir=input_dir, output_dir=output_dir)
+    if (
+        skip_existing
+        and output_path.exists()
+        and output_path.stat().st_mtime >= path.stat().st_mtime
+    ):
+        return ConversionResult(source=path, output=output_path, row_count=0, status="skipped")
+
     rows = list(read_hdf_rows(path))
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    with output_path.open("w", encoding="utf-8", newline="") as handle:
+    temp_output_path = output_path.with_name(f".{output_path.name}.tmp")
+    with temp_output_path.open("w", encoding="utf-8", newline="") as handle:
         writer = csv.DictWriter(
             handle,
             fieldnames=[
@@ -76,6 +131,7 @@ def convert_file(path: Path, *, input_dir: Path, output_dir: Path) -> Conversion
         )
         writer.writeheader()
         writer.writerows(rows)
+    temp_output_path.replace(output_path)
     return ConversionResult(source=path, output=output_path, row_count=len(rows))
 
 
@@ -91,7 +147,16 @@ def read_hdf_rows(path: Path) -> Iterable[dict[str, str]]:
     latitudes = hdf.select("FP_latitude")
     longitudes = hdf.select("FP_longitude")
     confidences = hdf.select("FP_confidence")
-    for latitude, longitude, confidence in zip(latitudes, longitudes, confidences, strict=True):
+
+    latitude_values = read_sds_values(latitudes)
+    longitude_values = read_sds_values(longitudes)
+    confidence_values = read_sds_values(confidences)
+    for latitude, longitude, confidence in zip(
+        latitude_values,
+        longitude_values,
+        confidence_values,
+        strict=True,
+    ):
         confidence = float(confidence)
         if confidence <= 0:
             continue
@@ -103,6 +168,23 @@ def read_hdf_rows(path: Path) -> Iterable[dict[str, str]]:
             "scene_id": scene_id,
             "source_file": str(path),
         }
+
+
+def read_sds_values(dataset) -> Sequence:
+    info = dataset.info()
+    dimensions = info[2]
+    if isinstance(dimensions, int):
+        dimensions = (dimensions,)
+    if any(dimension == 0 for dimension in dimensions):
+        return ()
+    values = dataset[:]
+    if isinstance(values, str | bytes):
+        return (values,)
+    try:
+        iter(values)
+    except TypeError:
+        return (values,)
+    return values
 
 
 def converted_output_path(path: Path, *, input_dir: Path, output_dir: Path) -> Path:

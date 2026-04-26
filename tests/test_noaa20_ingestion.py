@@ -45,6 +45,22 @@ def test_ingest_noaa20_can_persist_via_repository(tmp_path, monkeypatch):
         def source_file_completed(self, satellite, path):
             return False
 
+        def reset_running_source_files(self, *, satellite, message):
+            calls["reset_running"] = (satellite, message)
+            return 0
+
+        def start_run(self, run_id, satellite, source_path=None):
+            calls["start_run"] = (run_id, satellite, source_path)
+
+        def finish_run(self, run_id, status, message=None):
+            calls["finish_run"] = (run_id, status, message)
+
+        def mark_source_file_running(self, satellite, path):
+            calls.setdefault("running_sources", []).append((satellite, path))
+
+        def mark_source_file_failed(self, satellite, path, message):
+            calls.setdefault("failed_sources", []).append((satellite, path, message))
+
         def persist_ingestion(self, **kwargs):
             calls["persist_kwargs"] = kwargs
             return 2, 3
@@ -67,3 +83,4 @@ def test_ingest_noaa20_can_persist_via_repository(tmp_path, monkeypatch):
     assert summary.persisted_pixel_count == 3
     assert "failure" not in calls
     assert calls["persist_kwargs"]["satellite"] == "noaa20"
+    assert len(calls["running_sources"]) == 1

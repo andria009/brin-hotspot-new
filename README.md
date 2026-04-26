@@ -13,7 +13,7 @@ This project is intentionally separate from the legacy `hotspot` folder. The leg
 - PostgreSQL/PostGIS schema initialization for hotspot, source-file, ingestion-run, reference-boundary, anomaly, and raster metadata tables.
 - Versioned schema migration runner for hotspot and raster databases.
 - CLI health and sanitized configuration commands.
-- Shared hotspot ingestion engine for parsing, enrichment, clustering, CSV export, idempotency, and persistence.
+- Shared hotspot ingestion engine for parsing, enrichment, clustering, CSV export, idempotency, and per-source persistence.
 - SNPP and NOAA20 VIIRS text ingestion.
 - AQUA and TERRA MODIS HDF fire-pixel ingestion.
 - Landsat 8 `firepixels.txt` ingestion with grouped scene handling.
@@ -24,7 +24,7 @@ This project is intentionally separate from the legacy `hotspot` folder. The leg
 - Operational admin commands for run/source status and source-file replay.
 - Raster metadata scanner for GeoTIFF footprint registration.
 - Raster tile generation wrapper using `gdal2tiles.py`.
-- Worker orchestration commands for one-shot and repeated ingestion cycles.
+- Worker orchestration commands and a Docker Compose service profile for one-shot and repeated ingestion cycles.
 - MODIS HDF4 conversion sidecar that keeps legacy HDF dependencies outside the Python 3.14 worker.
 - Unit tests for configuration, clustering, parsing, reference import, geospatial enrichment, raster parsing, migrations, and ingestion flows.
 
@@ -71,8 +71,44 @@ The shared ingestion flow is:
 4. Optionally enrich detections with PostGIS administrative boundaries.
 5. Optionally filter persistent anomalies and duplicate pixels.
 6. Cluster detections using satellite-specific resolution rules.
-7. Write cluster and pixel CSV outputs.
-8. Optionally persist clusters, pixels, source-file status, and ingestion-run status into PostGIS.
+7. Write cluster and pixel CSV outputs for each source item.
+8. Optionally persist each source item independently into PostGIS.
+9. Mark each source file `completed` only after its clusters and pixels are stored.
+
+This source-level checkpointing is important for operational runs. If a long ingestion is interrupted, files already marked `completed` are skipped on the next run, stale `running` files are reset to `pending`, and remaining or failed files can be retried without replaying the whole tree.
+
+## Hotspot Detection Process
+
+SNPP and NOAA20 use the same VIIRS active-fire text flow:
+
+1. The worker scans each real input tree recursively.
+   - SNPP reads `AFIMG_npp*.txt`.
+   - NOAA20 reads `AFIMG_j01*.txt`.
+2. Each text file is treated as one source item. With database persistence enabled, the file is skipped when `source_files.status = completed`.
+3. Observation time is derived from the production filename, for example `d20250101_t0407536`.
+4. Each valid hotspot row is normalized into a common pixel record containing latitude, longitude, confidence, observed time, satellite, scene id, source station, and source file.
+5. With `--enrich`, each pixel is matched against the imported PostGIS province, kabupaten, and kecamatan polygons. Pixels outside the imported boundary set remain valid hotspot pixels but keep null administrative fields.
+6. Persistent anomaly filtering and duplicate filtering are applied when enrichment/database mode is enabled.
+7. Remaining pixels are clustered using satellite-specific spatial resolution settings.
+8. Cluster and pixel CSV files are written, then clusters and pixels are persisted to PostGIS. The source file is marked `completed` only after persistence succeeds.
+
+AQUA uses a two-stage MODIS flow because production AQUA inputs are HDF4:
+
+1. `modis-converter` or `modis-converter-service` scans raw AQUA HDF4 files recursively under `/app/data/input/aqua`.
+2. It reads MOD14 fire-pixel datasets such as `FP_latitude`, `FP_longitude`, and `FP_confidence`.
+3. Each HDF file is converted to a neutral `*.mod14.hotspots.csv` file under `/app/data/output/modis-converted/aqua`, preserving the relative input tree.
+4. Empty MODIS granules become header-only CSV files. Failed granules are reported in converter logs and do not stop the whole conversion cycle.
+5. The converter uses `--skip-existing` in service mode, so already converted files are not rewritten unless the source HDF is newer. Output replacement is atomic so the worker does not ingest half-written CSV files.
+6. `worker-service` ingests AQUA from `/app/data/output/modis-converted/aqua`, not from the raw HDF directory.
+7. AQUA converted CSV rows are normalized into the same common hotspot pixel model as VIIRS, then enrichment, filtering, clustering, CSV export, persistence, and source-file checkpointing use the shared ingestion engine.
+
+Operationally, SNPP, NOAA20, and AQUA therefore converge into the same database model:
+
+- `source_files` tracks whether each input file is `pending`, `running`, `completed`, or `failed`.
+- `ingestion_runs` records each command or worker cycle run.
+- `hotspot_pixel` stores individual detections.
+- `hotspot_cluster` stores clustered hotspot groups.
+- Administrative enrichment fields are updated on conflict, so replaying completed sources after reference-data import can backfill province, kabupaten, and kecamatan values.
 
 ## Local Python
 
@@ -165,6 +201,8 @@ docker compose run --rm modis-converter --input-dir /app/data/input --output-dir
 
 The converter writes `*.mod14.hotspots.csv` files next to the matching input tree. The main AQUA/TERRA ingestion commands prefer converted CSV files over matching raw HDF files, which avoids duplicate processing when both are present.
 
+MODIS granules with no fire pixels are converted to header-only CSV files. Files that cannot be read are reported to stderr and do not stop the whole conversion run.
+
 Run Landsat 8 ingestion:
 
 ```bash
@@ -195,6 +233,61 @@ hotspot admin replay-source --satellite snpp --path data/input/snpp/2026/04/24/0
 ```
 
 The next `hotspot ingest ... --database` run will process a replayed source again because only `completed` source files are skipped.
+
+Replay completed files for a whole satellite, for example after importing reference data and wanting to rerun enrichment:
+
+```bash
+hotspot admin replay-satellite --satellite snpp --status completed
+```
+
+Reset interrupted `running` source files to `pending`:
+
+```bash
+hotspot admin reset-running --satellite snpp
+```
+
+Reset all interrupted `running` source files:
+
+```bash
+hotspot admin reset-running
+```
+
+Database-backed ingestion also resets stale `running` source files for the selected satellite at startup. This lets an interrupted service run continue on the next cycle without manual SQL.
+
+Operational cleanup commands:
+
+```bash
+# Reset interrupted files before retrying a satellite.
+docker compose run --rm worker hotspot admin reset-running --satellite snpp
+docker compose run --rm worker hotspot admin reset-running --satellite noaa20
+docker compose run --rm worker hotspot admin reset-running --satellite aqua
+
+# Replay completed files after importing reference data or changing enrichment logic.
+docker compose run --rm worker hotspot admin replay-satellite --satellite snpp --status completed
+docker compose run --rm worker hotspot admin replay-satellite --satellite noaa20 --status completed
+docker compose run --rm worker hotspot admin replay-satellite --satellite aqua --status completed
+
+# Replay failed files after fixing parser/input issues.
+docker compose run --rm worker hotspot admin replay-satellite --satellite snpp --status failed
+```
+
+Direct SQL checks are useful for cleanup decisions:
+
+```bash
+docker compose exec db psql -U hotspot -d hotspot -c "
+select satellite, status, count(*)
+from source_files
+group by satellite, status
+order by satellite, status;
+"
+
+docker compose exec db psql -U hotspot -d hotspot -c "
+select satellite, status, count(*)
+from ingestion_runs
+group by satellite, status
+order by satellite, status;
+"
+```
 
 ## Raster Metadata
 
@@ -240,7 +333,92 @@ Run a repeated worker loop:
 hotspot worker loop --interval-seconds 300 --database --enrich
 ```
 
-The worker uses the same source-file idempotency tables as direct ingestion commands, so completed database-backed files are skipped unless they are explicitly replayed.
+Use `--max-cycles 0` for a long-running service loop. `0` is the default for
+`worker loop`; use a positive value for testing:
+
+```bash
+hotspot worker loop \
+  --satellite snpp \
+  --satellite noaa20 \
+  --satellite aqua \
+  --input aqua=/app/data/output/modis-converted/aqua \
+  --interval-seconds 300 \
+  --max-cycles 0 \
+  --database \
+  --enrich
+```
+
+The worker uses the same source-file idempotency tables as direct ingestion commands. Completed database-backed files are skipped unless they are explicitly replayed, so the loop can safely revisit the same input folders and process newly-arrived files. `--input satellite=/path` overrides one satellite input directory, which is useful for AQUA/TERRA after HDF4 files have been converted to CSV by the MODIS converter sidecar.
+
+Run the Docker Compose service profile:
+
+```bash
+docker compose --profile service up -d modis-converter-service worker-service
+docker compose logs -f worker-service
+docker compose --profile service stop worker-service modis-converter-service
+```
+
+The default service pair processes SNPP, NOAA20, and AQUA with enrichment enabled. `modis-converter-service` refreshes AQUA HDF4 files into `/app/data/output/modis-converted/aqua`, and `worker-service` ingests AQUA from that converted CSV directory. Add Terra later by adding a Terra converter service and editing the worker command after Terra source data is ready.
+
+For production-style runs, mount each real satellite source directory directly:
+
+```yaml
+- /mnt/geomimo-data/DataProses/Suomi-NPP:/app/data/input/snpp:ro
+- /mnt/geomimo-data/DataProses/NOAA-20:/app/data/input/noaa20:ro
+- /mnt/geomimo-data/DataProses/AQUA:/app/data/input/aqua:ro
+- /mnt/geomimo-data/DataProses/Terra:/app/data/input/terra:ro
+```
+
+Do not bind `./data/input:/app/data/input` at the same time for production ingestion. The local parent bind can create placeholder `snpp`, `noaa20`, `aqua`, and `terra` directories under `data/input`, which is confusing and can hide whether the container is reading the real `/mnt/geomimo-data` source.
+
+Server workflow after code changes:
+
+```bash
+docker compose build worker
+docker compose build modis-converter
+docker compose run --rm worker hotspot health --database
+docker compose run --rm worker hotspot admin reset-running
+docker compose --profile service up -d modis-converter-service worker-service
+```
+
+Monitor the service:
+
+```bash
+docker compose ps
+docker compose logs -f worker-service
+docker compose logs -f modis-converter-service
+docker compose exec db psql -U hotspot -d hotspot -c "
+select satellite, status, count(*)
+from source_files
+group by satellite, status
+order by satellite, status;
+"
+```
+
+Stop or restart the service:
+
+```bash
+docker compose --profile service stop worker-service modis-converter-service
+docker compose --profile service restart modis-converter-service worker-service
+```
+
+For a short service smoke test, override the cycle count:
+
+```bash
+HOTSPOT_WORKER_MAX_CYCLES=1 docker compose --profile service up worker-service
+```
+
+To smoke-test one converter cycle manually:
+
+```bash
+docker compose run --rm modis-converter \
+  --input-dir /app/data/input/aqua \
+  --output-dir /app/data/output/modis-converted/aqua \
+  --satellite aqua \
+  --skip-existing
+```
+
+The service is idempotent when `--database` is enabled: `completed` source files are skipped, interrupted `running` files are reset on startup, and newly-arrived files are processed on later cycles.
 
 ## Reference Data
 
@@ -254,6 +432,64 @@ hotspot admin import-geojson anomaly --file data/reference/anomalies.geojson --i
 ```
 
 Reference GeoJSON files must be valid `FeatureCollection` documents. Imported geometries are stored as `MultiPolygon` SRID 4326 geometries.
+
+After reference data is imported, rerun ingestion with `--database --enrich`. Existing hotspot rows are updated with enriched administrative fields on conflict, so replaying completed source files can backfill province, kabupaten, and kecamatan values.
+
+## Verification
+
+Check application and database connectivity:
+
+```bash
+docker compose run --rm worker hotspot health --database
+```
+
+Check source-file progress:
+
+```bash
+docker compose exec db psql -U hotspot -d hotspot -c "
+select satellite, status, count(*) as source_files
+from source_files
+group by satellite, status
+order by satellite, status;
+"
+```
+
+Check persisted pixels and enrichment coverage:
+
+```bash
+docker compose exec db psql -U hotspot -d hotspot -c "
+select satellite,
+       count(*) as pixels,
+       count(provinsi) as with_province,
+       count(kabupaten) as with_kabupaten,
+       count(kecamatan) as with_kecamatan
+from hotspot_pixel
+group by satellite
+order by satellite;
+"
+```
+
+Check recent ingestion runs:
+
+```bash
+docker compose run --rm worker hotspot admin runs --limit 20
+docker compose run --rm worker hotspot admin sources --limit 20
+```
+
+Check MODIS conversion output:
+
+```bash
+find data/output/modis-converted/aqua -type f -name '*.mod14.hotspots.csv' | wc -l
+find data/output/modis-converted/aqua -type f -name '*.mod14.hotspots.csv' | head
+```
+
+Check worker-service logs and running containers:
+
+```bash
+docker compose ps
+docker compose logs --tail 200 worker-service
+docker compose logs --tail 200 modis-converter-service
+```
 
 ## Configuration
 
@@ -284,12 +520,13 @@ docker compose run --rm --volume /path/to/hotspot-new/tests:/app/tests:ro worker
 
 Latest local result:
 
-- `pytest`: 38 passed.
+- `pytest`: 47 passed.
 - `ruff check .`: passed.
 - Docker worker image rebuilt successfully.
 - Docker MODIS converter image built successfully with `pyhdf` isolated on Python 3.12/bookworm.
 - Docker MODIS converter empty-tree smoke passed.
 - Docker AQUA converted CSV ingestion smoke passed.
+- Real AQUA HDF4 conversion and converted AQUA ingestion were tested successfully with production-like data.
 - Docker migrations applied successfully and then skipped on repeat.
 - Docker/PostGIS Landsat 8 persistence smoke passed.
 - Docker NOAA20 worker smoke passed.
@@ -297,22 +534,25 @@ Latest local result:
 - Docker raster scanner smoke passed.
 - Docker raster tile smoke passed on an empty fixture tree.
 - Optional main-worker HDF build failed at `pyhdf` native compilation under Python 3.14, after HDF4 libraries and `gcc` were installed.
-- MODIS HDF conversion is now isolated in the `modis-converter` sidecar path; it still needs a real AQUA/TERRA HDF sample smoke test.
+- MODIS HDF conversion is now isolated in the `modis-converter` sidecar path; AQUA has been validated with real data, while TERRA still awaits ready source data.
 - Docker Compose stack was shut down afterward with `docker compose down`.
 
 ## What Is Next
 
 Priority validation:
 
-- Get real AQUA and TERRA HDF4 samples and use them to verify the `modis-converter` output against expected fire-pixel latitude, longitude, confidence, observation time, and source metadata.
-- Add real AQUA and TERRA converted CSV and HDF4 sample fixtures, then verify conversion, parse, enrichment, clustering, CSV export, and PostGIS persistence end to end.
+- Finish current SNPP, NOAA20, and AQUA backfill ingestion with `--database --enrich`, then confirm source-file status and enrichment coverage.
+- Get real TERRA HDF4 samples and use them to verify the `modis-converter` output against expected fire-pixel latitude, longitude, confidence, observation time, and source metadata.
+- Add sanitized real AQUA converted CSV/HDF4 fixtures from the tested production sample, plus TERRA fixtures once available.
 - Add a real GeoTIFF fire-index fixture and assert actual XYZ tile output, not only command construction and empty-tree smoke checks.
 - Validate real province, kabupaten, kecamatan, and persistent-anomaly GeoJSON imports against the production schema and enrichment queries.
-- Tune duplicate filtering buffers and clustering behavior using representative SNPP, NOAA20, MODIS, and Landsat 8 data.
+- Tune duplicate filtering buffers and clustering behavior using representative SNPP, NOAA20, AQUA/MODIS, and Landsat 8 data.
 
 Operations:
 
-- Add worker deployment guidance for production-style schedules, expected volume mounts, restart policy, and operational runbooks.
+- Validate the long-running `worker-service` against live SNPP, NOAA20, and converted AQUA folders after current backfill ingestion completes.
+- Add operational checks for `worker-service` health, recent cycles, source-file failures, and enrichment coverage.
+- Add Terra to `worker-service` after Terra source data and MODIS conversion output are ready.
 - Add log retention and failure summary reporting around ingestion runs and source-file failures.
 - Add backup/restore notes for the hotspot and raster PostgreSQL databases.
 - Add environment-specific configuration examples for local, staging, and production deployments.
