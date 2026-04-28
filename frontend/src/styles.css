@@ -286,9 +286,49 @@ button {
   color: #142333;
 }
 
+.range-label {
+  color: #526173;
+  display: grid;
+  font-size: 13px;
+  gap: 6px;
+}
+
+.range-label-header {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+}
+
 .range-label input {
   accent-color: #b7192b;
   width: 100%;
+}
+
+.confidence-scale {
+  display: grid;
+  gap: 4px;
+  grid-template-columns: repeat(10, minmax(0, 1fr));
+  margin-top: 2px;
+  width: 100%;
+}
+
+.confidence-scale-item {
+  align-items: center;
+  display: grid;
+  justify-items: center;
+}
+
+.confidence-dot {
+  border: 2px solid #ffffff;
+  border-radius: 999px;
+  box-shadow: 0 0 0 1px rgba(34, 49, 65, 0.2);
+  display: block;
+  height: 12px;
+  width: 12px;
+}
+
+.confidence-dot.muted {
+  opacity: 0.35;
 }
 
 .datetime-grid {

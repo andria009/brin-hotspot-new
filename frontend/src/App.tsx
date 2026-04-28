@@ -43,6 +43,7 @@ const SATELLITE_COLORS: Record<string, string> = {
   terra: "#287c56",
   landsat8: "#6f4dbf"
 };
+const CONFIDENCE_VALUES = Array.from({ length: 10 }, (_, index) => index);
 type Basemap = "street" | "satellite";
 
 export default function App() {
@@ -139,15 +140,7 @@ export default function App() {
         source: "hotspots",
         paint: {
           "circle-radius": ["interpolate", ["linear"], ["get", "confidence"], 7, 3, 9, 6.5],
-          "circle-color": [
-            "match",
-            ["get", "confidence"],
-            9,
-            "#d71920",
-            8,
-            "#f28e2b",
-            "#f4d35e"
-          ],
+          "circle-color": confidenceColorExpression(),
           "circle-stroke-color": "#ffffff",
           "circle-stroke-width": 1.5,
           "circle-opacity": 0.9
@@ -339,8 +332,21 @@ export default function App() {
             <button className={kind === "pixel" ? "active" : ""} onClick={() => setKind("pixel")}>Pixel</button>
           </div>
           <label className="range-label">
-            Minimum confidence <strong>{minConfidence}</strong>
+            <span className="range-label-header">
+              Minimum confidence <strong>{minConfidence}</strong>
+            </span>
             <input min="0" max="9" value={minConfidence} onChange={(event) => setMinConfidence(Number(event.target.value))} type="range" />
+            <span className="confidence-scale" aria-label="Confidence color scale">
+              {CONFIDENCE_VALUES.map((value) => (
+                <span className="confidence-scale-item" key={value}>
+                  <span
+                    className={`confidence-dot ${value < minConfidence ? "muted" : ""}`}
+                    style={{ backgroundColor: confidenceColor(value) }}
+                    aria-hidden="true"
+                  />
+                </span>
+              ))}
+            </span>
           </label>
           <div className="datetime-grid">
             <label>
@@ -552,20 +558,47 @@ function sourceTime(source: SourceFile) {
   return new Date(source.processed_at ?? source.observed_at ?? 0);
 }
 
+function confidenceColor(confidence: number) {
+  const stops = [
+    { value: 0, color: [255, 255, 255] },
+    { value: 6, color: [244, 211, 94] },
+    { value: 8, color: [242, 142, 43] },
+    { value: 9, color: [215, 25, 32] }
+  ];
+  const clamped = Math.max(0, Math.min(9, confidence));
+  const upperIndex = stops.findIndex((stop) => clamped <= stop.value);
+  const upper = stops[Math.max(upperIndex, 1)];
+  const lower = stops[Math.max(upperIndex - 1, 0)];
+  const span = upper.value - lower.value || 1;
+  const ratio = (clamped - lower.value) / span;
+  const rgb = lower.color.map((channel, index) =>
+    Math.round(channel + (upper.color[index] - channel) * ratio)
+  );
+  return `rgb(${rgb.join(", ")})`;
+}
+
+function confidenceColorExpression(): maplibregl.ExpressionSpecification {
+  return [
+    "interpolate",
+    ["linear"],
+    ["get", "confidence"],
+    0,
+    "#ffffff",
+    6,
+    "#f4d35e",
+    8,
+    "#f28e2b",
+    9,
+    "#d71920"
+  ];
+}
+
 function hotspotColorExpression(
   province: string,
   kabupaten: string,
   kecamatan: string
 ): maplibregl.ExpressionSpecification {
-  const confidenceColor: maplibregl.ExpressionSpecification = [
-    "match",
-    ["get", "confidence"],
-    9,
-    "#d71920",
-    8,
-    "#f28e2b",
-    "#f4d35e"
-  ];
+  const confidenceColor = confidenceColorExpression();
   const regionMatch = regionMatchExpression(province, kabupaten, kecamatan);
   if (!regionMatch) {
     return confidenceColor;

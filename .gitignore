@@ -6,6 +6,7 @@
 !.env.example
 .venv/
 venv/
+manuscript/
 
 # Python
 __pycache__/
