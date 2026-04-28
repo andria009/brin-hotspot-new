@@ -137,6 +137,116 @@ button {
   font-size: 20px;
 }
 
+.statistics-panel {
+  display: grid;
+  gap: 12px;
+}
+
+.chart-context {
+  display: grid;
+  gap: 2px;
+}
+
+.chart-context strong {
+  color: #142333;
+  font-size: 14px;
+}
+
+.chart-context span {
+  color: #627184;
+  font-size: 12px;
+}
+
+.chart-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+}
+
+.chart-legend span {
+  align-items: center;
+  color: #526173;
+  display: flex;
+  font-size: 11px;
+  font-weight: 700;
+  gap: 5px;
+}
+
+.chart-legend i {
+  border-radius: 999px;
+  display: block;
+  height: 8px;
+  width: 8px;
+}
+
+.stacked-chart {
+  display: grid;
+  gap: 12px;
+}
+
+.empty-chart {
+  color: #8b98a8;
+  font-size: 13px;
+  padding: 8px 0;
+}
+
+.chart-row {
+  display: grid;
+  gap: 6px;
+}
+
+.chart-row-label {
+  align-items: baseline;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.chart-row-label span {
+  color: #223141;
+  font-size: 12px;
+  font-weight: 800;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chart-row-label strong {
+  color: #142333;
+  font-size: 12px;
+}
+
+.chart-track {
+  background: #eef3f7;
+  border-radius: 999px;
+  height: 12px;
+  overflow: hidden;
+}
+
+.chart-stack {
+  border-radius: 999px;
+  display: flex;
+  height: 100%;
+  min-width: 3px;
+  overflow: hidden;
+}
+
+.chart-stack span {
+  display: block;
+  height: 100%;
+}
+
+.chart-values {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+}
+
+.chart-values span {
+  color: #6a7888;
+  font-size: 11px;
+}
+
 .controls {
   display: grid;
   gap: 14px;
@@ -315,6 +425,79 @@ button {
 .map-toolbar button {
   background: white;
   padding: 0 12px;
+}
+
+.bottom-rail {
+  background: rgba(248, 250, 252, 0.98);
+  border: 1px solid #d9e1e8;
+  border-radius: 8px 8px 0 0;
+  bottom: 0;
+  box-shadow: 0 -16px 50px rgba(20, 35, 51, 0.16);
+  left: 18px;
+  max-height: 44vh;
+  overflow: auto;
+  padding: 14px;
+  position: absolute;
+  right: 18px;
+  z-index: 3;
+}
+
+.statistics-grid {
+  align-items: start;
+  display: grid;
+  gap: 14px;
+  grid-template-columns: minmax(320px, 0.95fr) minmax(420px, 1.35fr);
+}
+
+.statistics-grid .panel {
+  margin-bottom: 0;
+}
+
+.trend-panel {
+  align-content: start;
+  align-self: start;
+  display: grid;
+  gap: 12px;
+}
+
+.line-chart {
+  background: #f8fafc;
+  border: 1px solid #e4ebf1;
+  border-radius: 8px;
+  display: block;
+  height: 220px;
+  width: 100%;
+}
+
+.axis-line {
+  stroke: #b8c4d0;
+  stroke-width: 1.2;
+}
+
+.grid-line {
+  stroke: #dfe7ee;
+  stroke-width: 1;
+}
+
+.axis-label,
+.axis-value {
+  fill: #6a7888;
+  font-size: 11px;
+}
+
+.axis-label {
+  text-anchor: middle;
+}
+
+.trend-values {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px 10px;
+}
+
+.trend-values span {
+  color: #6a7888;
+  font-size: 11px;
 }
 
 .basemap-switch {

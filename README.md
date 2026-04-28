@@ -456,6 +456,8 @@ curl http://localhost:8000/api/v1/summary
 curl "http://localhost:8000/api/v1/locations?province=Riau&kabupaten=Pelalawan"
 curl "http://localhost:8000/api/v1/hotspots?kind=cluster&satellite=snpp&min_confidence=7&limit=1000"
 curl "http://localhost:8000/api/v1/hotspots?kind=pixel&satellite=snpp&satellite=noaa20&observed_from=2026-04-24T00:00:00&observed_to=2026-04-24T23:59:59&province=Riau&kabupaten=Pelalawan&kecamatan=Menteng"
+curl "http://localhost:8000/api/v1/statistics?kind=cluster&satellite=snpp&satellite=noaa20&province=Riau"
+curl "http://localhost:8000/api/v1/trend?kind=cluster&satellite=snpp&satellite=noaa20&observed_from=2026-04-24T00:00:00&observed_to=2026-04-27T23:59:59"
 curl "http://localhost:8000/api/v1/runs?limit=20"
 curl "http://localhost:8000/api/v1/source-files?status=failed&limit=20"
 ```
@@ -475,12 +477,22 @@ The hotspot endpoint supports these read-only filters:
 - `bbox=west,south,east,north`
 - `limit`
 
+`/api/v1/statistics` returns grouped hotspot counts for stacked bar charts. It uses the same hotspot filters and automatically chooses the grouping level:
+
+- no `province`: group by province
+- `province`: group by kota/kabupaten in that province
+- `kabupaten`: group by kecamatan in that kota/kabupaten
+- `kecamatan`: group by selected satellites
+
+`/api/v1/trend` returns daily hotspot counts in the active filter range, with counts for each selected satellite and a total count per day.
+
 Frontend access and features:
 
 - local dashboard access at `http://localhost:8080`
 - Nginx-served production build with `/api/*` proxied to the API service
 - BRIN Hotspot Monitoring System logo and operational map-first layout
 - hideable right rail for status, latest run per satellite, and the latest two source files per satellite
+- hideable bottom statistics rail controlled from the map toolbar
 - actual filtered visible count from the API `total`, not only the number of returned map features
 - manual refresh and GeoJSON export
 
@@ -494,6 +506,8 @@ Map and filter features:
 - searchable province, kota/kabupaten, and kecamatan selection
 - satellite toggles that show or hide matching hotspots on the map
 - selected-region highlighting with non-selected hotspots greyed out
+- stacked bar chart for hotspot counts by administrative level and selected satellites
+- daily trend line chart for hotspot counts by selected satellites plus total
 
 The frontend also works with mock data when the API is unavailable, which keeps UI development possible before a local database is populated.
 

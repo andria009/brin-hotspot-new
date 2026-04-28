@@ -4,6 +4,8 @@ from fastapi.testclient import TestClient
 
 from brin_hotspot.api.app import create_app, get_repository
 from brin_hotspot.api.schemas import (
+    HotspotStatisticsResponse,
+    HotspotTrendResponse,
     IngestionRunResponse,
     LocationOptionsResponse,
     OperationalSummary,
@@ -62,6 +64,31 @@ class FakeRepository:
     def hotspot_count(self, **kwargs):
         return 2501
 
+    def statistics(self, **kwargs):
+        self.statistics_kwargs = kwargs
+        return HotspotStatisticsResponse(
+            level="kabupaten",
+            items=[
+                {
+                    "label": "PELALAWAN",
+                    "total": 12,
+                    "satellites": {"snpp": 7, "noaa20": 5},
+                }
+            ],
+        )
+
+    def trend(self, **kwargs):
+        self.trend_kwargs = kwargs
+        return HotspotTrendResponse(
+            items=[
+                {
+                    "date": "2026-04-27",
+                    "total": 10,
+                    "satellites": {"snpp": 6, "noaa20": 4},
+                }
+            ]
+        )
+
     def runs(self, **kwargs):
         return [
             IngestionRunResponse(
@@ -118,6 +145,18 @@ def test_api_exposes_read_only_hotspot_endpoints():
     assert locations["provinces"] == ["RIAU", "SULAWESI TEST"]
     assert locations["kabupaten"] == ["LUWU TEST"]
     assert locations["kecamatan"] == ["WALENRANG TEST"]
+
+    statistics = client.get(
+        "/api/v1/statistics?kind=cluster&satellite=snpp&satellite=noaa20&province=RIAU"
+    ).json()
+    assert statistics["level"] == "kabupaten"
+    assert statistics["items"][0]["satellites"]["snpp"] == 7
+
+    trend = client.get(
+        "/api/v1/trend?kind=cluster&satellite=snpp&satellite=noaa20&province=RIAU"
+    ).json()
+    assert trend["items"][0]["date"] == "2026-04-27"
+    assert trend["items"][0]["total"] == 10
 
 
 def test_hotspots_accepts_time_and_region_filters():

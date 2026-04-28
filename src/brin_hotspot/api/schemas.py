@@ -57,6 +57,27 @@ class LocationOptionsResponse(BaseModel):
     kecamatan: list[str] = Field(default_factory=list)
 
 
+class StatisticItem(BaseModel):
+    label: str
+    total: int
+    satellites: dict[str, int] = Field(default_factory=dict)
+
+
+class HotspotStatisticsResponse(BaseModel):
+    level: Literal["province", "kabupaten", "kecamatan", "satellite"]
+    items: list[StatisticItem] = Field(default_factory=list)
+
+
+class TrendItem(BaseModel):
+    date: str
+    total: int
+    satellites: dict[str, int] = Field(default_factory=dict)
+
+
+class HotspotTrendResponse(BaseModel):
+    items: list[TrendItem] = Field(default_factory=list)
+
+
 class GeoJsonFeatureCollection(BaseModel):
     type: Literal["FeatureCollection"] = "FeatureCollection"
     total: int = 0

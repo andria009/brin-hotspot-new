@@ -1,5 +1,6 @@
 import {
   Activity,
+  BarChart3,
   Database,
   Download,
   Flame,
@@ -13,10 +14,20 @@ import {
 } from "lucide-react";
 import maplibregl from "maplibre-gl";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { getHotspots, getLocations, getRuns, getSources, getSummary } from "./api";
+import {
+  getHotspots,
+  getLocations,
+  getRuns,
+  getSources,
+  getStatistics,
+  getSummary,
+  getTrend
+} from "./api";
 import hotspotLogo from "./assets/hotspot-logo.png";
 import type {
   HotspotCollection,
+  HotspotStatistics,
+  HotspotTrend,
   HotspotKind,
   IngestionRun,
   LocationOptions,
@@ -25,13 +36,23 @@ import type {
 } from "./types";
 
 const SATELLITES = ["snpp", "noaa20", "aqua", "terra", "landsat8"];
+const SATELLITE_COLORS: Record<string, string> = {
+  snpp: "#b7192b",
+  noaa20: "#e76f2c",
+  aqua: "#2f80ed",
+  terra: "#287c56",
+  landsat8: "#6f4dbf"
+};
 type Basemap = "street" | "satellite";
 
 export default function App() {
   const mapRef = useRef<maplibregl.Map | null>(null);
   const mapNodeRef = useRef<HTMLDivElement | null>(null);
+  const defaultDateInitializedRef = useRef(false);
   const [summary, setSummary] = useState<OperationalSummary | null>(null);
   const [hotspots, setHotspots] = useState<HotspotCollection | null>(null);
+  const [statistics, setStatistics] = useState<HotspotStatistics | null>(null);
+  const [trend, setTrend] = useState<HotspotTrend | null>(null);
   const [runs, setRuns] = useState<IngestionRun[]>([]);
   const [sources, setSources] = useState<SourceFile[]>([]);
   const [kind, setKind] = useState<HotspotKind>("cluster");
@@ -48,7 +69,8 @@ export default function App() {
     kecamatan: []
   });
   const [selected, setSelected] = useState<GeoJSON.Feature | null>(null);
-  const [rightRailOpen, setRightRailOpen] = useState(true);
+  const [rightRailOpen, setRightRailOpen] = useState(false);
+  const [bottomRailOpen, setBottomRailOpen] = useState(false);
   const [basemap, setBasemap] = useState<Basemap>("street");
 
   const totals = useMemo(() => {
@@ -180,23 +202,36 @@ export default function App() {
   }, [basemap]);
 
   async function refresh() {
-    const [summaryData, hotspotData, runData, sourceData] = await Promise.all([
+    const filters = {
+      kind,
+      satellites,
+      minConfidence,
+      observedFrom,
+      observedTo,
+      province,
+      kabupaten,
+      kecamatan
+    };
+    const [summaryData, hotspotData, statisticData, trendData, runData, sourceData] = await Promise.all([
       getSummary(),
-      getHotspots({
-        kind,
-        satellites,
-        minConfidence,
-        observedFrom,
-        observedTo,
-        province,
-        kabupaten,
-        kecamatan
-      }),
+      getHotspots(filters),
+      getStatistics(filters),
+      getTrend(filters),
       getRuns(),
       getSources()
     ]);
     setSummary(summaryData);
+    if (!defaultDateInitializedRef.current && !observedFrom && !observedTo) {
+      const latestDate = latestAvailableDate(summaryData);
+      if (latestDate) {
+        defaultDateInitializedRef.current = true;
+        setObservedFrom(latestDate);
+        setObservedTo(latestDate);
+      }
+    }
     setHotspots(hotspotData);
+    setStatistics(statisticData);
+    setTrend(trendData);
     setRuns(runData);
     setSources(sourceData);
   }
@@ -411,11 +446,27 @@ export default function App() {
             {rightRailOpen ? <PanelRightClose size={16} /> : <PanelRightOpen size={16} />}
             Details
           </button>
+          <button onClick={() => setBottomRailOpen((open) => !open)}><BarChart3 size={16} /> Statistics</button>
           <button onClick={() => void refresh()}><RefreshCw size={16} /> Refresh</button>
           <button onClick={exportGeoJson}><Download size={16} /> GeoJSON</button>
         </div>
         <div ref={mapNodeRef} className="map" />
         {selected && <FeatureInspector feature={selected} onClose={() => setSelected(null)} />}
+        {bottomRailOpen && (
+          <section className="bottom-rail">
+            <div className="statistics-grid">
+              <StatisticsPanel
+                kind={kind}
+                statistics={statistics}
+                satellites={satellites}
+                province={province}
+                kabupaten={kabupaten}
+                kecamatan={kecamatan}
+              />
+              <TrendPanel kind={kind} trend={trend} satellites={satellites} />
+            </div>
+          </section>
+        )}
       </section>
 
       {rightRailOpen && (
@@ -551,6 +602,177 @@ function regionMatchExpression(
   return null;
 }
 
+function StatisticsPanel({
+  kind,
+  statistics,
+  satellites,
+  province,
+  kabupaten,
+  kecamatan
+}: {
+  kind: HotspotKind;
+  statistics: HotspotStatistics | null;
+  satellites: string[];
+  province: string;
+  kabupaten: string;
+  kecamatan: string;
+}) {
+  const items = statistics?.items ?? [];
+  const maxTotal = Math.max(...items.map((item) => item.total), 0);
+  return (
+    <section className="panel statistics-panel">
+      <div className="panel-title">
+        <BarChart3 size={16} />
+        <span>Statistics</span>
+      </div>
+      <div className="chart-context">
+        <strong>{statisticsTitle(statistics?.level, province, kabupaten, kecamatan)}</strong>
+        <span>{kind}s by selected satellites</span>
+      </div>
+      <div className="chart-legend">
+        {satellites.map((satellite) => (
+          <span key={satellite}>
+            <i style={{ background: satelliteColor(satellite) }} />
+            {satellite.toUpperCase()}
+          </span>
+        ))}
+      </div>
+      <div className="stacked-chart">
+        {items.length === 0 && <div className="empty-chart">No matching hotspots</div>}
+        {items.map((item) => (
+          <div className="chart-row" key={item.label}>
+            <div className="chart-row-label">
+              <span>{item.label}</span>
+              <strong>{formatCount(item.total)}</strong>
+            </div>
+            <div className="chart-track">
+              <div className="chart-stack" style={{ width: `${barWidth(item.total, maxTotal)}%` }}>
+                {satellites.map((satellite) => {
+                  const value = item.satellites[satellite] ?? 0;
+                  if (value <= 0) {
+                    return null;
+                  }
+                  return (
+                    <span
+                      key={satellite}
+                      title={`${satellite.toUpperCase()}: ${formatCount(value)}`}
+                      style={{
+                        background: satelliteColor(satellite),
+                        width: `${(value / item.total) * 100}%`
+                      }}
+                    />
+                  );
+                })}
+              </div>
+            </div>
+            <div className="chart-values">
+              {satellites
+                .filter((satellite) => (item.satellites[satellite] ?? 0) > 0)
+                .map((satellite) => (
+                  <span key={satellite}>
+                    {satellite.toUpperCase()} {formatCount(item.satellites[satellite])}
+                  </span>
+                ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function TrendPanel({
+  kind,
+  trend,
+  satellites
+}: {
+  kind: HotspotKind;
+  trend: HotspotTrend | null;
+  satellites: string[];
+}) {
+  const items = trend?.items ?? [];
+  const series = [
+    ...satellites.map((satellite) => ({
+      key: satellite,
+      label: satellite.toUpperCase(),
+      color: satelliteColor(satellite),
+      values: items.map((item) => item.satellites[satellite] ?? 0)
+    })),
+    {
+      key: "total",
+      label: "TOTAL",
+      color: "#142333",
+      values: items.map((item) => item.total)
+    }
+  ];
+  const maxValue = Math.max(...series.flatMap((item) => item.values), 0);
+  return (
+    <section className="panel trend-panel">
+      <div className="panel-title">
+        <Activity size={16} />
+        <span>Daily Trend</span>
+      </div>
+      <div className="chart-context">
+        <strong>{kind}s per day</strong>
+        <span>selected satellites and total</span>
+      </div>
+      <div className="chart-legend">
+        {series.map((item) => (
+          <span key={item.key}>
+            <i style={{ background: item.color }} />
+            {item.label}
+          </span>
+        ))}
+      </div>
+      {items.length === 0 ? (
+        <div className="empty-chart">No matching hotspots</div>
+      ) : (
+        <>
+          <svg className="line-chart" viewBox="0 0 640 220" role="img" aria-label="Daily hotspot trend">
+            <line className="axis-line" x1="42" y1="174" x2="610" y2="174" />
+            <line className="axis-line" x1="42" y1="24" x2="42" y2="174" />
+            {[0.25, 0.5, 0.75, 1].map((tick) => (
+              <line
+                className="grid-line"
+                key={tick}
+                x1="42"
+                x2="610"
+                y1={174 - tick * 150}
+                y2={174 - tick * 150}
+              />
+            ))}
+            {series.map((item) => (
+              <polyline
+                fill="none"
+                key={item.key}
+                points={linePoints(item.values, maxValue)}
+                stroke={item.color}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={item.key === "total" ? 3 : 2}
+              />
+            ))}
+            {items.map((item, index) => (
+              <text className="axis-label" key={item.date} x={xPosition(index, items.length)} y="198">
+                {formatTrendDate(item.date)}
+              </text>
+            ))}
+            <text className="axis-value" x="8" y="30">{formatCount(maxValue)}</text>
+            <text className="axis-value" x="8" y="178">0</text>
+          </svg>
+          <div className="trend-values">
+            {items.map((item) => (
+              <span key={item.date}>
+                {formatTrendDate(item.date)} {formatCount(item.total)}
+              </span>
+            ))}
+          </div>
+        </>
+      )}
+    </section>
+  );
+}
+
 function Metric({
   className = "",
   icon,
@@ -569,6 +791,58 @@ function Metric({
       <strong>{value ?? "-"}</strong>
     </div>
   );
+}
+
+function statisticsTitle(
+  level: HotspotStatistics["level"] | undefined,
+  province: string,
+  kabupaten: string,
+  kecamatan: string
+) {
+  if (level === "satellite") {
+    return `Hotspots in ${kecamatan}`;
+  }
+  if (level === "kecamatan") {
+    return `Kecamatan in ${kabupaten}`;
+  }
+  if (level === "kabupaten") {
+    return `Kota/kabupaten in ${province}`;
+  }
+  return "Hotspots per provinsi";
+}
+
+function barWidth(total: number, maxTotal: number) {
+  if (maxTotal <= 0) {
+    return 0;
+  }
+  return Math.max((total / maxTotal) * 100, 3);
+}
+
+function satelliteColor(satellite: string) {
+  return SATELLITE_COLORS[satellite] ?? "#627184";
+}
+
+function linePoints(values: number[], maxValue: number) {
+  if (values.length === 0) {
+    return "";
+  }
+  return values
+    .map((value, index) => `${xPosition(index, values.length)},${yPosition(value, maxValue)}`)
+    .join(" ");
+}
+
+function xPosition(index: number, count: number) {
+  if (count <= 1) {
+    return 326;
+  }
+  return 42 + (index / (count - 1)) * 568;
+}
+
+function yPosition(value: number, maxValue: number) {
+  if (maxValue <= 0) {
+    return 174;
+  }
+  return 174 - (value / maxValue) * 150;
 }
 
 function Row({ title, meta }: { title: string; meta: string }) {
@@ -623,6 +897,22 @@ function formatShort(value?: string | null) {
 
 function formatCount(value: number) {
   return new Intl.NumberFormat("id-ID").format(value);
+}
+
+function formatTrendDate(value: string) {
+  return new Intl.DateTimeFormat("id-ID", {
+    day: "2-digit",
+    month: "short"
+  }).format(new Date(`${value}T00:00:00`));
+}
+
+function latestAvailableDate(summary: OperationalSummary) {
+  return summary.satellites
+    .map((item) => item.latest_observed_at)
+    .filter((value): value is string => Boolean(value))
+    .sort()
+    .at(-1)
+    ?.slice(0, 10);
 }
 
 function toDateInputValue(value: Date) {

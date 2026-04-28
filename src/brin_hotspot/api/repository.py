@@ -7,12 +7,16 @@ from typing import Any, Literal
 import psycopg
 
 from brin_hotspot.api.schemas import (
+    HotspotStatisticsResponse,
+    HotspotTrendResponse,
     IngestionRunResponse,
     LocationOptionsResponse,
     OperationalSummary,
     SatelliteSummary,
     SourceFileResponse,
     SourceStatusSummary,
+    StatisticItem,
+    TrendItem,
 )
 from brin_hotspot.config import DatabaseSettings
 
@@ -177,6 +181,134 @@ class ReadOnlyHotspotRepository:
                 cursor.execute(query, params)
                 row = cursor.fetchone()
                 return int(row[0]) if row else 0
+
+    def statistics(
+        self,
+        *,
+        kind: HotspotKind,
+        satellites: Sequence[str] = (),
+        observed_from: datetime | None = None,
+        observed_to: datetime | None = None,
+        min_confidence: int | None = None,
+        province: str | None = None,
+        kabupaten: str | None = None,
+        kecamatan: str | None = None,
+        limit: int = 20,
+    ) -> HotspotStatisticsResponse:
+        table = "hotspot_pixel" if kind == "pixel" else "hotspot_cluster"
+        if kecamatan:
+            level = "satellite"
+            group_expression = "satellite"
+            group_alias = "satellite"
+        elif kabupaten:
+            level = "kecamatan"
+            group_expression = "COALESCE(NULLIF(kecamatan, ''), 'Unknown')"
+            group_alias = "label"
+        elif province:
+            level = "kabupaten"
+            group_expression = "COALESCE(NULLIF(kabupaten, ''), 'Unknown')"
+            group_alias = "label"
+        else:
+            level = "province"
+            group_expression = "COALESCE(NULLIF(provinsi, ''), 'Unknown')"
+            group_alias = "label"
+
+        where, params = _hotspot_filters(
+            satellites=satellites,
+            observed_from=observed_from,
+            observed_to=observed_to,
+            min_confidence=min_confidence,
+            province=province,
+            kabupaten=kabupaten,
+            kecamatan=kecamatan,
+            bbox=None,
+        )
+        query = f"""
+            SELECT {group_expression} AS {group_alias},
+                   satellite,
+                   count(*)::int AS total
+            FROM {table}
+        """
+        if where:
+            query += " WHERE " + " AND ".join(where)
+        query += f"""
+            GROUP BY {group_expression}, satellite
+            ORDER BY {group_expression}, satellite;
+        """
+
+        grouped: dict[str, dict[str, int]] = {}
+        with psycopg.connect(self._database.dsn, connect_timeout=5) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(query, params)
+                for label, satellite, count in cursor.fetchall():
+                    satellite_counts = grouped.setdefault(label, {})
+                    satellite_counts[satellite] = count
+
+        items = [
+            StatisticItem(
+                label=label,
+                total=sum(satellite_counts.values()),
+                satellites=satellite_counts,
+            )
+            for label, satellite_counts in grouped.items()
+        ]
+        items.sort(key=lambda item: (-item.total, item.label))
+        return HotspotStatisticsResponse(level=level, items=items[: min(max(limit, 1), 50)])
+
+    def trend(
+        self,
+        *,
+        kind: HotspotKind,
+        satellites: Sequence[str] = (),
+        observed_from: datetime | None = None,
+        observed_to: datetime | None = None,
+        min_confidence: int | None = None,
+        province: str | None = None,
+        kabupaten: str | None = None,
+        kecamatan: str | None = None,
+    ) -> HotspotTrendResponse:
+        table = "hotspot_pixel" if kind == "pixel" else "hotspot_cluster"
+        where, params = _hotspot_filters(
+            satellites=satellites,
+            observed_from=observed_from,
+            observed_to=observed_to,
+            min_confidence=min_confidence,
+            province=province,
+            kabupaten=kabupaten,
+            kecamatan=kecamatan,
+            bbox=None,
+        )
+        query = f"""
+            SELECT observed_at::date AS observed_date,
+                   satellite,
+                   count(*)::int AS total
+            FROM {table}
+        """
+        if where:
+            query += " WHERE " + " AND ".join(where)
+        query += """
+            GROUP BY observed_date, satellite
+            ORDER BY observed_date, satellite;
+        """
+
+        grouped: dict[str, dict[str, int]] = {}
+        with psycopg.connect(self._database.dsn, connect_timeout=5) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(query, params)
+                for observed_date, satellite, count in cursor.fetchall():
+                    date_key = observed_date.isoformat()
+                    satellite_counts = grouped.setdefault(date_key, {})
+                    satellite_counts[satellite] = count
+
+        items = [
+            TrendItem(
+                date=date_key,
+                total=sum(satellite_counts.values()),
+                satellites=satellite_counts,
+            )
+            for date_key, satellite_counts in sorted(grouped.items())
+        ]
+        return HotspotTrendResponse(items=items)
 
     def runs(
         self,

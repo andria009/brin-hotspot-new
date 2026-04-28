@@ -11,6 +11,8 @@ from brin_hotspot.api.repository import ReadOnlyHotspotRepository
 from brin_hotspot.api.schemas import (
     ApiHealth,
     GeoJsonFeatureCollection,
+    HotspotStatisticsResponse,
+    HotspotTrendResponse,
     IngestionRunResponse,
     LocationOptionsResponse,
     OperationalSummary,
@@ -84,6 +86,54 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 bbox=bbox,
                 limit=limit,
             )
+        )
+
+    @app.get("/api/v1/statistics", response_model=HotspotStatisticsResponse)
+    def statistics(
+        repository: Annotated[ReadOnlyHotspotRepository, Depends(get_repository)],
+        kind: Annotated[Literal["pixel", "cluster"], Query()] = "cluster",
+        satellite: Annotated[list[str] | None, Query()] = None,
+        observed_from: datetime | None = None,
+        observed_to: datetime | None = None,
+        min_confidence: Annotated[int | None, Query(ge=0, le=9)] = None,
+        province: str | None = None,
+        kabupaten: str | None = None,
+        kecamatan: str | None = None,
+        limit: Annotated[int, Query(ge=1, le=50)] = 20,
+    ) -> HotspotStatisticsResponse:
+        return repository.statistics(
+            kind=kind,
+            satellites=satellite or (),
+            observed_from=observed_from,
+            observed_to=observed_to,
+            min_confidence=min_confidence,
+            province=province,
+            kabupaten=kabupaten,
+            kecamatan=kecamatan,
+            limit=limit,
+        )
+
+    @app.get("/api/v1/trend", response_model=HotspotTrendResponse)
+    def trend(
+        repository: Annotated[ReadOnlyHotspotRepository, Depends(get_repository)],
+        kind: Annotated[Literal["pixel", "cluster"], Query()] = "cluster",
+        satellite: Annotated[list[str] | None, Query()] = None,
+        observed_from: datetime | None = None,
+        observed_to: datetime | None = None,
+        min_confidence: Annotated[int | None, Query(ge=0, le=9)] = None,
+        province: str | None = None,
+        kabupaten: str | None = None,
+        kecamatan: str | None = None,
+    ) -> HotspotTrendResponse:
+        return repository.trend(
+            kind=kind,
+            satellites=satellite or (),
+            observed_from=observed_from,
+            observed_to=observed_to,
+            min_confidence=min_confidence,
+            province=province,
+            kabupaten=kabupaten,
+            kecamatan=kecamatan,
         )
 
     @app.get("/api/v1/runs", response_model=list[IngestionRunResponse])

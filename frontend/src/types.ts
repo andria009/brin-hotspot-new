@@ -69,3 +69,26 @@ export type LocationOptions = {
   kabupaten: string[];
   kecamatan: string[];
 };
+
+export type StatisticLevel = "province" | "kabupaten" | "kecamatan" | "satellite";
+
+export type StatisticItem = {
+  label: string;
+  total: number;
+  satellites: Record<string, number>;
+};
+
+export type HotspotStatistics = {
+  level: StatisticLevel;
+  items: StatisticItem[];
+};
+
+export type TrendItem = {
+  date: string;
+  total: number;
+  satellites: Record<string, number>;
+};
+
+export type HotspotTrend = {
+  items: TrendItem[];
+};

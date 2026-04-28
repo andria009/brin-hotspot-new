@@ -1,5 +1,7 @@
 import type {
   HotspotCollection,
+  HotspotStatistics,
+  HotspotTrend,
   IngestionRun,
   LocationOptions,
   OperationalSummary,
@@ -30,6 +32,25 @@ export const mockHotspots: HotspotCollection = {
     feature("cluster-3", 140.71, -6.12, "aqua", 7, "PAPUA SELATAN", "MERAUKE", "NAUKENJERAI"),
     feature("cluster-4", 116.88, -0.54, "snpp", 9, "KALIMANTAN TIMUR", "KUTAI KARTANEGARA", "MUARA KAMAN"),
     feature("cluster-5", 105.54, -3.02, "noaa20", 8, "SUMATERA SELATAN", "OGAN KOMERING ILIR", "TULUNG SELAPAN")
+  ]
+};
+
+export const mockStatistics: HotspotStatistics = {
+  level: "province",
+  items: [
+    { label: "RIAU", total: 42, satellites: { snpp: 19, noaa20: 15, aqua: 8 } },
+    { label: "KALIMANTAN TENGAH", total: 31, satellites: { snpp: 12, noaa20: 13, aqua: 6 } },
+    { label: "PAPUA SELATAN", total: 18, satellites: { snpp: 5, noaa20: 4, aqua: 9 } }
+  ]
+};
+
+export const mockTrend: HotspotTrend = {
+  items: [
+    { date: "2026-04-23", total: 16, satellites: { snpp: 7, noaa20: 6, aqua: 3 } },
+    { date: "2026-04-24", total: 22, satellites: { snpp: 10, noaa20: 8, aqua: 4 } },
+    { date: "2026-04-25", total: 18, satellites: { snpp: 6, noaa20: 7, aqua: 5 } },
+    { date: "2026-04-26", total: 29, satellites: { snpp: 13, noaa20: 9, aqua: 7 } },
+    { date: "2026-04-27", total: 37, satellites: { snpp: 17, noaa20: 12, aqua: 8 } }
   ]
 };
 

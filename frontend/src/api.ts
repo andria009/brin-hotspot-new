@@ -1,7 +1,17 @@
-import { mockHotspots, mockLocations, mockRuns, mockSources, mockSummary } from "./mockData";
+import {
+  mockHotspots,
+  mockLocations,
+  mockRuns,
+  mockSources,
+  mockStatistics,
+  mockSummary,
+  mockTrend
+} from "./mockData";
 import type {
   HotspotCollection,
   HotspotKind,
+  HotspotStatistics,
+  HotspotTrend,
   IngestionRun,
   LocationOptions,
   OperationalSummary,
@@ -40,8 +50,44 @@ export async function getHotspots(filters: HotspotFilters): Promise<HotspotColle
   return getJson(`/hotspots?${params.toString()}`, mockHotspots);
 }
 
+export async function getStatistics(filters: HotspotFilters): Promise<HotspotStatistics> {
+  if (filters.satellites.length === 0) {
+    return { level: statisticLevel(filters), items: [] };
+  }
+  const params = hotspotParams(filters);
+  appendIfPresent(params, "province", filters.province);
+  appendIfPresent(params, "kabupaten", filters.kabupaten);
+  appendIfPresent(params, "kecamatan", filters.kecamatan);
+  params.set("limit", "20");
+  return getJson(`/statistics?${params.toString()}`, mockStatistics);
+}
+
+export async function getTrend(filters: HotspotFilters): Promise<HotspotTrend> {
+  if (filters.satellites.length === 0) {
+    return { items: [] };
+  }
+  const params = hotspotParams(filters);
+  appendIfPresent(params, "province", filters.province);
+  appendIfPresent(params, "kabupaten", filters.kabupaten);
+  appendIfPresent(params, "kecamatan", filters.kecamatan);
+  params.delete("limit");
+  return getJson(`/trend?${params.toString()}`, mockTrend);
+}
+
 export async function getRuns(): Promise<IngestionRun[]> {
   return getJson("/runs?limit=10", mockRuns);
+}
+
+function hotspotParams(filters: HotspotFilters) {
+  const params = new URLSearchParams({
+    kind: filters.kind,
+    min_confidence: String(filters.minConfidence),
+    limit: "2000"
+  });
+  filters.satellites.forEach((satellite) => params.append("satellite", satellite));
+  appendIfPresent(params, "observed_from", toApiDateTime(filters.observedFrom));
+  appendIfPresent(params, "observed_to", toApiDateTime(filters.observedTo, true));
+  return params;
 }
 
 export async function getSources(): Promise<SourceFile[]> {
@@ -83,4 +129,17 @@ function toApiDateTime(value: string, endOfDay = false) {
     return `${value}T${endOfDay ? "23:59:59" : "00:00:00"}`;
   }
   return value.length === 16 ? `${value}:00` : value;
+}
+
+function statisticLevel(filters: HotspotFilters) {
+  if (filters.kecamatan) {
+    return "satellite";
+  }
+  if (filters.kabupaten) {
+    return "kecamatan";
+  }
+  if (filters.province) {
+    return "kabupaten";
+  }
+  return "province";
 }
