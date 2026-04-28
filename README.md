@@ -26,6 +26,8 @@ This project is intentionally separate from the legacy `hotspot` folder. The leg
 - Raster tile generation wrapper using `gdal2tiles.py`.
 - Worker orchestration commands and a Docker Compose service profile for one-shot and repeated ingestion cycles.
 - MODIS HDF4 conversion sidecar that keeps legacy HDF dependencies outside the Python 3.14 worker.
+- Read-only FastAPI dissemination layer for summary, hotspot GeoJSON, location options, ingestion runs, and source-file status.
+- Containerized MapLibre web dashboard for hotspot visualization, filtering, status monitoring, and GeoJSON export.
 - Unit tests for configuration, clustering, parsing, reference import, geospatial enrichment, raster parsing, migrations, and ingestion flows.
 
 ## Supported Inputs
@@ -420,6 +422,72 @@ docker compose run --rm modis-converter \
 
 The service is idempotent when `--database` is enabled: `completed` source files are skipped, interrupted `running` files are reset on startup, and newly-arrived files are processed on later cycles.
 
+## API and Frontend
+
+The project exposes hotspot data through two read-only dissemination paths:
+
+- `api`: JSON and GeoJSON access for downstream systems.
+- `frontend`: web visualization served by Nginx, with `/api/*` proxied to the API container.
+
+Start the database, API, and frontend:
+
+```bash
+docker compose up --build db api frontend
+```
+
+Open the web dashboard at `http://localhost:8080`. The API is available at `http://localhost:8000`.
+
+Build or restart individual services:
+
+```bash
+docker compose build api frontend
+docker compose up -d api frontend
+docker compose stop frontend
+docker compose start frontend
+```
+
+Useful API endpoints:
+
+```bash
+curl http://localhost:8000/api/v1/health
+curl http://localhost:8000/api/v1/summary
+curl "http://localhost:8000/api/v1/locations?province=Riau&kabupaten=Pelalawan"
+curl "http://localhost:8000/api/v1/hotspots?kind=cluster&satellite=snpp&min_confidence=7&limit=1000"
+curl "http://localhost:8000/api/v1/hotspots?kind=pixel&satellite=snpp&satellite=noaa20&observed_from=2026-04-24T00:00:00&observed_to=2026-04-24T23:59:59&province=Riau&kabupaten=Pelalawan&kecamatan=Menteng"
+curl "http://localhost:8000/api/v1/runs?limit=20"
+curl "http://localhost:8000/api/v1/source-files?status=failed&limit=20"
+```
+
+`/api/v1/hotspots` returns a GeoJSON `FeatureCollection` with:
+
+- `features`: the returned map features, bounded by the requested `limit` for browser and API payload safety.
+- `total`: the actual number of matching clusters or pixels after filters, which can be larger than the returned feature count.
+
+The hotspot endpoint supports these read-only filters:
+
+- `kind=cluster|pixel`
+- repeated `satellite` parameters
+- `observed_from` and `observed_to`
+- `min_confidence`
+- `province`, `kabupaten`, and `kecamatan`
+- `bbox=west,south,east,north`
+- `limit`
+
+The frontend includes:
+
+- cluster/pixel mode switching
+- minimum-confidence filter
+- date-only from/to filters
+- quick date presets for the last 24 hours and last 7 days, which update the from/to date fields
+- searchable province, kota/kabupaten, and kecamatan selection
+- satellite toggles that show or hide matching hotspots on the map
+- selected-region highlighting with non-selected hotspots greyed out
+- right rail for status, latest run per satellite, and the latest two source files per satellite
+- actual filtered visible count from the API `total`, not only the number of returned map features
+- manual refresh and GeoJSON export
+
+The frontend also works with mock data when the API is unavailable, which keeps UI development possible before a local database is populated.
+
 ## Reference Data
 
 Import reference polygons from GeoJSON:
@@ -508,7 +576,10 @@ The current implementation has been verified with:
 ```bash
 PYENV_VERSION=hotspot pytest -o cache_dir=/tmp/hotspot-new-pytest-cache
 PYENV_VERSION=hotspot RUFF_CACHE_DIR=/tmp/hotspot-new-ruff-cache ruff check .
+npm --prefix frontend run build
 docker compose build worker
+docker compose build api
+docker compose build frontend
 docker compose build modis-converter
 docker compose run --rm modis-converter --input-dir /app/data/input --output-dir /app/data/output/modis-converted
 docker compose run --rm worker hotspot db migrate
@@ -524,8 +595,11 @@ docker compose run --rm --volume /path/to/hotspot-new/tests:/app/tests:ro worker
 
 Latest local result:
 
-- `pytest`: 47 passed.
+- `pytest`: 50 passed.
 - `ruff check .`: passed.
+- Frontend production build passed.
+- Docker API image built successfully.
+- Docker frontend image built successfully.
 - Docker worker image rebuilt successfully.
 - Docker MODIS converter image built successfully with `pyhdf` isolated on Python 3.12/bookworm.
 - Docker MODIS converter empty-tree smoke passed.

@@ -7,6 +7,8 @@ __pycache__
 *.pyc
 *.pyo
 *.egg-info
+frontend/dist
+frontend/node_modules
 data/input/*
 data/output/*
 logs/*

@@ -75,6 +75,19 @@ def config() -> None:
     typer.echo(settings.sanitized_json())
 
 
+@app.command("serve")
+def serve_command(
+    host: Annotated[str, typer.Option("--host")] = "0.0.0.0",
+    port: Annotated[int, typer.Option("--port", min=1, max=65535)] = 8000,
+    reload: Annotated[bool, typer.Option("--reload/--no-reload")] = False,
+) -> None:
+    """Serve the read-only hotspot API."""
+    import uvicorn
+
+    _bootstrap()
+    uvicorn.run("brin_hotspot.api.app:app", host=host, port=port, reload=reload)
+
+
 @db_app.command("migrate")
 def migrate_command() -> None:
     """Apply versioned schema migrations."""
