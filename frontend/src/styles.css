@@ -317,6 +317,36 @@ button {
   padding: 0 12px;
 }
 
+.basemap-switch {
+  align-items: center;
+  background: #eef3f7;
+  border-radius: 8px;
+  display: flex;
+  gap: 4px;
+  min-height: 36px;
+  min-width: 0;
+  padding: 4px;
+}
+
+.basemap-switch svg {
+  color: #445368;
+  margin: 0 4px;
+}
+
+.basemap-switch button {
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  min-height: 28px;
+  padding: 0 8px;
+}
+
+.basemap-switch button.active {
+  background: white;
+  color: #142333;
+  font-weight: 800;
+}
+
 .data-row {
   border-top: 1px solid #edf1f5;
   display: grid;

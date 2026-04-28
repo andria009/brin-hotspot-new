@@ -4,6 +4,7 @@ import {
   Download,
   Flame,
   Layers,
+  Map as MapIcon,
   PanelRightClose,
   PanelRightOpen,
   RefreshCw,
@@ -24,6 +25,7 @@ import type {
 } from "./types";
 
 const SATELLITES = ["snpp", "noaa20", "aqua", "terra", "landsat8"];
+type Basemap = "street" | "satellite";
 
 export default function App() {
   const mapRef = useRef<maplibregl.Map | null>(null);
@@ -47,6 +49,7 @@ export default function App() {
   });
   const [selected, setSelected] = useState<GeoJSON.Feature | null>(null);
   const [rightRailOpen, setRightRailOpen] = useState(true);
+  const [basemap, setBasemap] = useState<Basemap>("street");
 
   const totals = useMemo(() => {
     const satellitesSummary = summary?.satellites ?? [];
@@ -81,9 +84,25 @@ export default function App() {
             tiles: ["https://tile.openstreetmap.org/{z}/{x}/{y}.png"],
             tileSize: 256,
             attribution: "OpenStreetMap"
+          },
+          esriWorldImagery: {
+            type: "raster",
+            tiles: [
+              "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
+            ],
+            tileSize: 256,
+            attribution: "Esri World Imagery"
           }
         },
-        layers: [{ id: "osm", type: "raster", source: "osm" }]
+        layers: [
+          { id: "osm", type: "raster", source: "osm" },
+          {
+            id: "esri-world-imagery",
+            type: "raster",
+            source: "esriWorldImagery",
+            layout: { visibility: "none" }
+          }
+        ]
       }
     });
     mapRef.current.addControl(new maplibregl.NavigationControl({ showCompass: false }), "bottom-right");
@@ -97,7 +116,7 @@ export default function App() {
         type: "circle",
         source: "hotspots",
         paint: {
-          "circle-radius": ["interpolate", ["linear"], ["get", "confidence"], 7, 6, 9, 13],
+          "circle-radius": ["interpolate", ["linear"], ["get", "confidence"], 7, 3, 9, 6.5],
           "circle-color": [
             "match",
             ["get", "confidence"],
@@ -156,6 +175,10 @@ export default function App() {
     updateMapRegionHighlight();
   }, [province, kecamatan]);
 
+  useEffect(() => {
+    updateBasemap();
+  }, [basemap]);
+
   async function refresh() {
     const [summaryData, hotspotData, runData, sourceData] = await Promise.all([
       getSummary(),
@@ -207,6 +230,19 @@ export default function App() {
     fromDate.setDate(toDate.getDate() - (days - 1));
     setObservedFrom(toDateInputValue(fromDate));
     setObservedTo(toDateInputValue(toDate));
+  }
+
+  function updateBasemap() {
+    const map = mapRef.current;
+    if (!map?.getLayer("osm") || !map.getLayer("esri-world-imagery")) {
+      return;
+    }
+    map.setLayoutProperty("osm", "visibility", basemap === "street" ? "visible" : "none");
+    map.setLayoutProperty(
+      "esri-world-imagery",
+      "visibility",
+      basemap === "satellite" ? "visible" : "none"
+    );
   }
 
   function updateMapRegionHighlight() {
@@ -361,6 +397,15 @@ export default function App() {
           <div>
             <strong>{formatCount(visibleCount)}</strong>
             <span> visible {kind}s</span>
+          </div>
+          <div className="basemap-switch" aria-label="Basemap">
+            <MapIcon size={16} />
+            <button className={basemap === "street" ? "active" : ""} onClick={() => setBasemap("street")}>
+              Street
+            </button>
+            <button className={basemap === "satellite" ? "active" : ""} onClick={() => setBasemap("satellite")}>
+              Satellite
+            </button>
           </div>
           <button onClick={() => setRightRailOpen((open) => !open)}>
             {rightRailOpen ? <PanelRightClose size={16} /> : <PanelRightOpen size={16} />}

@@ -4,7 +4,6 @@ Remaining work for the modernized BRIN hotspot workspace.
 
 ## Priority
 
-- Finish current SNPP, NOAA20, and AQUA backfill ingestion with `--database --enrich`, then confirm source-file status and enrichment coverage.
 - Get real TERRA HDF4 samples and verify the `modis-converter` output against expected fire-pixel latitude, longitude, confidence, observation time, and source metadata.
 - Add sanitized real AQUA converted CSV/HDF4 fixtures from the tested production sample, plus TERRA fixtures once available.
 - Add a real GeoTIFF fire-index fixture and assert actual XYZ tile output, not only command construction and empty-tree smoke checks.
@@ -13,7 +12,7 @@ Remaining work for the modernized BRIN hotspot workspace.
 
 ## Operations
 
-- Validate the long-running `worker-service` against live SNPP, NOAA20, and converted AQUA folders after current backfill ingestion completes.
+- Validate the long-running `worker-service` against live SNPP, NOAA20, and converted AQUA folders after completed backfill ingestion.
 - Add operational checks for `worker-service` health, recent cycles, source-file failures, and enrichment coverage.
 - Add Terra to `worker-service` after Terra source data and MODIS conversion output are ready.
 - Add worker deployment guidance for production-style schedules, expected volume mounts, restart policy, and operational runbooks.

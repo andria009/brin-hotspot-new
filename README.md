@@ -1,34 +1,29 @@
 # BRIN Hotspot Modernization
 
-Modernized hotspot processing workspace for the BRIN/LAPAN Indonesia fire detection pipeline.
+Modernized hotspot processing for the BRIN/LAPAN Indonesia fire detection pipeline.
 
-This project is intentionally separate from the legacy `hotspot` folder. The legacy folder remains the reference implementation while this workspace adds a reproducible runtime, isolated configuration, traceable logs, and a cleaner ingestion architecture.
+## Description
 
-## What Has Been Implemented
+BRIN Hotspot Modernization is a containerized processing and dissemination system for Indonesia fire hotspot data. It ingests satellite hotspot products from SNPP, NOAA20, AQUA, TERRA, and Landsat 8, normalizes them into a common model, enriches detections with administrative reference data, clusters related detections, and persists the results into PostgreSQL/PostGIS.
 
-- Python 3.14 target runtime.
-- Docker Compose development stack using generic Python and PostgreSQL/PostGIS images.
-- Environment-based configuration through `.env` / `HOTSPOT_*` variables.
-- Structured JSON logs with traceable `run_id` values.
-- PostgreSQL/PostGIS schema initialization for hotspot, source-file, ingestion-run, reference-boundary, anomaly, and raster metadata tables.
-- Versioned schema migration runner for hotspot and raster databases.
-- CLI health and sanitized configuration commands.
-- Shared hotspot ingestion engine for parsing, enrichment, clustering, CSV export, idempotency, and per-source persistence.
-- SNPP and NOAA20 VIIRS text ingestion.
-- AQUA and TERRA MODIS HDF fire-pixel ingestion.
-- Landsat 8 `firepixels.txt` ingestion with grouped scene handling.
-- Admin/reference GeoJSON importer for province, kabupaten, kecamatan, and persistent anomaly polygons.
-- PostGIS enrichment using administrative boundaries.
-- Persistent-anomaly filtering.
-- Duplicate hotspot filtering using satellite-specific spatial buffers and +/- 10 minute observation windows.
-- Operational admin commands for run/source status and source-file replay.
-- Raster metadata scanner for GeoTIFF footprint registration.
-- Raster tile generation wrapper using `gdal2tiles.py`.
-- Worker orchestration commands and a Docker Compose service profile for one-shot and repeated ingestion cycles.
-- MODIS HDF4 conversion sidecar that keeps legacy HDF dependencies outside the Python 3.14 worker.
-- Read-only FastAPI dissemination layer for summary, hotspot GeoJSON, location options, ingestion runs, and source-file status.
-- Containerized MapLibre web dashboard for hotspot visualization, filtering, status monitoring, and GeoJSON export.
-- Unit tests for configuration, clustering, parsing, reference import, geospatial enrichment, raster parsing, migrations, and ingestion flows.
+The project also provides two read-only dissemination paths: a FastAPI service for machine access and a MapLibre web dashboard for operational visualization. The frontend supports street and satellite basemaps, hotspot filtering, satellite toggles, regional highlighting, status monitoring, and GeoJSON export.
+
+## Motivation
+
+The legacy hotspot workflow is valuable but difficult to operate, test, and extend consistently across satellite families and deployment environments. This modernization effort creates a reproducible runtime with explicit configuration, structured logs, database-backed checkpointing, source-file replay controls, and isolated handling for legacy MODIS HDF4 dependencies.
+
+The system is designed to support operational backfill and continuous ingestion while reducing duplicate work, making failures easier to inspect, and giving developers and data users a stable read-only API for downstream integration.
+
+## Goal
+
+The goal is to provide a reliable, maintainable, and production-oriented hotspot platform that can:
+
+- process multi-satellite hotspot inputs with consistent enrichment, filtering, clustering, and persistence behavior
+- continue safely after interrupted runs using source-file checkpointing and replay/reset admin commands
+- separate raw data processing from read-only data dissemination
+- expose hotspot information through both a web visualization frontend and documented API access
+- run the worker, API, frontend, database, and MODIS converter as containerized services from the same Docker Compose stack
+- keep raster and scene-overlay support extensible for future satellite image visualization workflows
 
 ## Supported Inputs
 
@@ -437,6 +432,13 @@ docker compose up --build db api frontend
 
 Open the web dashboard at `http://localhost:8080`. The API is available at `http://localhost:8000`.
 
+Developer API documentation is generated from the FastAPI OpenAPI schema:
+
+- Interactive Swagger UI: `http://localhost:8000/docs`
+- OpenAPI schema: `http://localhost:8000/openapi.json`
+
+The OpenAPI schema can be imported into Postman, Insomnia, Swagger UI, or client SDK generators.
+
 Build or restart individual services:
 
 ```bash
@@ -473,8 +475,18 @@ The hotspot endpoint supports these read-only filters:
 - `bbox=west,south,east,north`
 - `limit`
 
-The frontend includes:
+Frontend access and features:
 
+- local dashboard access at `http://localhost:8080`
+- Nginx-served production build with `/api/*` proxied to the API service
+- BRIN Hotspot Monitoring System logo and operational map-first layout
+- hideable right rail for status, latest run per satellite, and the latest two source files per satellite
+- actual filtered visible count from the API `total`, not only the number of returned map features
+- manual refresh and GeoJSON export
+
+Map and filter features:
+
+- basemap switcher between OpenStreetMap street tiles and ESRI World Imagery satellite tiles
 - cluster/pixel mode switching
 - minimum-confidence filter
 - date-only from/to filters
@@ -482,9 +494,6 @@ The frontend includes:
 - searchable province, kota/kabupaten, and kecamatan selection
 - satellite toggles that show or hide matching hotspots on the map
 - selected-region highlighting with non-selected hotspots greyed out
-- right rail for status, latest run per satellite, and the latest two source files per satellite
-- actual filtered visible count from the API `total`, not only the number of returned map features
-- manual refresh and GeoJSON export
 
 The frontend also works with mock data when the API is unavailable, which keeps UI development possible before a local database is populated.
 
@@ -592,51 +601,3 @@ docker compose run --rm worker hotspot admin sources --limit 5
 docker compose run --rm --volume /path/to/hotspot-new/tests:/app/tests:ro worker hotspot raster scan --input-dir /app/tests --no-database
 docker compose run --rm --volume /path/to/hotspot-new/tests:/app/tests:ro worker hotspot raster tile --input-dir /app/tests --output-dir /tmp/hotspot-tiles --zoom 5
 ```
-
-Latest local result:
-
-- `pytest`: 50 passed.
-- `ruff check .`: passed.
-- Frontend production build passed.
-- Docker API image built successfully.
-- Docker frontend image built successfully.
-- Docker worker image rebuilt successfully.
-- Docker MODIS converter image built successfully with `pyhdf` isolated on Python 3.12/bookworm.
-- Docker MODIS converter empty-tree smoke passed.
-- Docker AQUA converted CSV ingestion smoke passed.
-- Real AQUA HDF4 conversion and converted AQUA ingestion were tested successfully with production-like data.
-- Docker migrations applied successfully and then skipped on repeat.
-- Docker/PostGIS Landsat 8 persistence smoke passed.
-- Docker NOAA20 worker smoke passed.
-- Docker admin run/source status commands passed.
-- Docker raster scanner smoke passed.
-- Docker raster tile smoke passed on an empty fixture tree.
-- Optional main-worker HDF build failed at `pyhdf` native compilation under Python 3.14, after HDF4 libraries and `gcc` were installed.
-- MODIS HDF conversion is now isolated in the `modis-converter` sidecar path; AQUA has been validated with real data, while TERRA still awaits ready source data.
-- Docker Compose stack was shut down afterward with `docker compose down`.
-
-## What Is Next
-
-Priority validation:
-
-- Finish current SNPP, NOAA20, and AQUA backfill ingestion with `--database --enrich`, then confirm source-file status and enrichment coverage.
-- Get real TERRA HDF4 samples and use them to verify the `modis-converter` output against expected fire-pixel latitude, longitude, confidence, observation time, and source metadata.
-- Add sanitized real AQUA converted CSV/HDF4 fixtures from the tested production sample, plus TERRA fixtures once available.
-- Add a real GeoTIFF fire-index fixture and assert actual XYZ tile output, not only command construction and empty-tree smoke checks.
-- Validate real province, kabupaten, kecamatan, and persistent-anomaly GeoJSON imports against the production schema and enrichment queries.
-- Tune duplicate filtering buffers and clustering behavior using representative SNPP, NOAA20, AQUA/MODIS, and Landsat 8 data.
-
-Operations:
-
-- Validate the long-running `worker-service` against live SNPP, NOAA20, and converted AQUA folders after current backfill ingestion completes.
-- Add operational checks for `worker-service` health, recent cycles, source-file failures, and enrichment coverage.
-- Add Terra to `worker-service` after Terra source data and MODIS conversion output are ready.
-- Add log retention and failure summary reporting around ingestion runs and source-file failures.
-- Add backup/restore notes for the hotspot and raster PostgreSQL databases.
-- Add environment-specific configuration examples for local, staging, and production deployments.
-
-Developer experience:
-
-- Add CI commands for lint, tests, Docker build, migration smoke checks, and a no-database ingestion smoke.
-- Add a small fixture-generation guide so new sample inputs can be added without leaking production data.
-- Consider a leaner Docker image or multi-stage build for the worker and MODIS converter images.
