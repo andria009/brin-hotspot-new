@@ -10,6 +10,8 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class DatabaseSettings(BaseSettings):
+    """Connection settings for one PostgreSQL/PostGIS database."""
+
     host: str = "localhost"
     port: int = 5432
     name: str = "hotspot"
@@ -29,10 +31,14 @@ class DatabaseSettings(BaseSettings):
 
 
 class RasterDatabaseSettings(DatabaseSettings):
+    """Raster metadata uses the same connection fields with a different DB name."""
+
     name: str = Field(default="raster", validation_alias="HOTSPOT_RASTER_DB_NAME")
 
 
 class PathSettings(BaseSettings):
+    """Runtime directories shared by CLI commands, worker, and containers."""
+
     input_dir: Path = Field(default=Path("data/input"), alias="HOTSPOT_INPUT_DIR")
     output_dir: Path = Field(default=Path("data/output"), alias="HOTSPOT_OUTPUT_DIR")
     log_dir: Path = Field(default=Path("logs"), alias="HOTSPOT_LOG_DIR")
@@ -41,6 +47,8 @@ class PathSettings(BaseSettings):
 
 
 class Settings(BaseSettings):
+    """Top-level application settings loaded from environment and optional .env."""
+
     environment: str = Field(default="development", alias="HOTSPOT_ENV")
     log_level: str = Field(default="INFO", alias="HOTSPOT_LOG_LEVEL")
     log_format: str = Field(default="json", alias="HOTSPOT_LOG_FORMAT")
@@ -56,11 +64,15 @@ class Settings(BaseSettings):
     )
 
     def ensure_runtime_directories(self) -> None:
+        """Create writable runtime directories before commands produce output."""
+
         self.paths.input_dir.mkdir(parents=True, exist_ok=True)
         self.paths.output_dir.mkdir(parents=True, exist_ok=True)
         self.paths.log_dir.mkdir(parents=True, exist_ok=True)
 
     def sanitized_dict(self) -> dict[str, Any]:
+        """Return config for diagnostics without exposing database passwords."""
+
         payload = self.model_dump(mode="json")
         payload["hotspot_database"]["password"] = "********"
         payload["raster_database"]["password"] = "********"
@@ -72,4 +84,6 @@ class Settings(BaseSettings):
 
 @lru_cache
 def get_settings() -> Settings:
+    """Cache settings so repeated dependency injection uses one parsed config."""
+
     return Settings()

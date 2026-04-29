@@ -7,6 +7,8 @@ from brin_hotspot.domain import AdminLocation, HotspotDetection
 
 
 class GeoRepository:
+    """Read-side geospatial enrichment and filtering repository used by ingestion."""
+
     def __init__(self, database: DatabaseSettings):
         self._database = database
 
@@ -16,8 +18,18 @@ class GeoRepository:
         *,
         duplicate_buffer_degrees: float,
     ) -> HotspotDetection | None:
+        """Return an enriched detection or None when it should be filtered.
+
+        A detection is filtered when it falls inside a persistent anomaly polygon
+        or duplicates an existing pixel from the same satellite within a short
+        time and distance window.
+        """
+
         with psycopg.connect(self._database.dsn, connect_timeout=5) as connection:
             with connection.cursor() as cursor:
+                # The SQL performs three operations in one round trip: locate
+                # administrative boundaries, reject persistent anomalies, and
+                # reject near-duplicate pixels.
                 cursor.execute(
                     """
                     WITH point AS (
@@ -78,4 +90,3 @@ class GeoRepository:
 
 def _normalize_kabupaten(value: str) -> str:
     return value.replace("KAB.", "").replace("KOTA", "").strip()
-

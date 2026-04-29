@@ -26,6 +26,13 @@ def ingest_hotspot_sources(
     persist: bool = False,
     enrich: bool = False,
 ) -> IngestionSummary:
+    """Run the shared ingestion pipeline for one satellite family.
+
+    Satellite modules provide source discovery and parsing. This function owns
+    the common operational behavior: source checkpointing, enrichment, filtering,
+    clustering, CSV export, persistence, and run accounting.
+    """
+
     run_id = uuid4()
     source_dir = input_dir or settings.paths.input_dir / (
         satellite_settings.input_subdir or satellite_settings.satellite
@@ -55,6 +62,8 @@ def ingest_hotspot_sources(
     pixel_radius_meters = round(satellite_settings.resolution_meters * 3)
 
     if repository:
+        # A previous crash can leave files in running state. Reset them before
+        # source discovery decisions so the next pass can retry safely.
         reset_count = repository.reset_running_source_files(
             satellite=satellite_settings.satellite,
             message="reset at ingestion startup",
@@ -177,6 +186,8 @@ def _process_source(
         repository.source_file_completed(satellite_settings.satellite, source_file)
         for source_file in source.files
     ):
+        # SourceItem may represent one file or a grouped scene. Skip only when
+        # every backing file is already completed.
         logger.info(
             "hotspot_source_skipped",
             extra={
@@ -190,6 +201,8 @@ def _process_source(
 
     if repository:
         for source_file in source.files:
+            # Mark before parsing so failures are visible in source_files even
+            # when parsing or enrichment fails midway.
             repository.mark_source_file_running(satellite_settings.satellite, source_file)
 
     try:
@@ -229,6 +242,8 @@ def _process_source(
     if geo_repository:
         source_detections = []
         for detection in parsed:
+            # enrich_detection returns None when a detection is intentionally
+            # filtered as a persistent anomaly or near-duplicate.
             enriched_detection = geo_repository.enrich_detection(
                 detection,
                 duplicate_buffer_degrees=satellite_settings.duplicate_buffer_degrees,
@@ -256,6 +271,8 @@ def _process_source(
         neighbor_multiplier=satellite_settings.neighbor_multiplier,
     )
     source_output_dir = settings.paths.output_dir / satellite_settings.satellite
+    # Prefix outputs with run/source order so repeated replays do not overwrite
+    # older CSV artifacts from previous runs.
     source_output_prefix = f"{run_id}_{source_index:05d}_{_safe_output_stem(source.path)}"
     cluster_csv = write_cluster_csv(
         source_clusters,
@@ -279,6 +296,8 @@ def _process_source(
                     clusters=source_clusters,
                     pixel_radius_meters=pixel_radius_meters,
                     source_metadata={
+                        # Preserve source metadata even if every detection from a
+                        # valid file is filtered before persistence.
                         detection.source_file: (detection.scene_id, detection.observed_at)
                         for detection in parsed
                     },
@@ -309,5 +328,7 @@ def _process_source(
 
 
 def _safe_output_stem(path: Path) -> str:
+    """Create a filesystem-safe output stem while keeping source identity readable."""
+
     safe = "".join(char if char.isalnum() or char in ("-", "_") else "_" for char in path.stem)
     return safe[:80] or "source"

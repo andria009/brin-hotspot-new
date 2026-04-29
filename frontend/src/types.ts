@@ -1,5 +1,8 @@
 export type HotspotKind = "cluster" | "pixel";
 
+// These types mirror the FastAPI response schemas. Keep them aligned with
+// src/brin_hotspot/api/schemas.py when adding or renaming API fields.
+
 export type SatelliteSummary = {
   satellite: string;
   clusters: number;
@@ -41,6 +44,8 @@ export type HotspotCollection = GeoJSON.FeatureCollection<
   GeoJSON.Point,
   HotspotFeature["properties"]
 > & {
+  // Actual filtered count in the API, which can be larger than features.length
+  // because map payloads are limited for browser performance.
   total?: number;
 };
 

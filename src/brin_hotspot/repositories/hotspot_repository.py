@@ -11,10 +11,14 @@ from brin_hotspot.domain import HotspotCluster, HotspotDetection
 
 
 class HotspotRepository:
+    """Write-side repository for ingestion runs, source checkpoints, and hotspots."""
+
     def __init__(self, database: DatabaseSettings):
         self._database = database
 
     def source_file_completed(self, satellite: str, path: Path) -> bool:
+        """Return True only for files that should be skipped by database ingestion."""
+
         with psycopg.connect(self._database.dsn, connect_timeout=5) as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
@@ -39,6 +43,12 @@ class HotspotRepository:
         source_metadata: dict[Path, tuple[str, datetime]] | None = None,
         finish_run: bool = True,
     ) -> tuple[int, int]:
+        """Persist clusters and pixels atomically for one source item.
+
+        Source-file completion is part of the same transaction as hotspot writes,
+        so a crash cannot mark a file completed without the corresponding data.
+        """
+
         metadata = _source_metadata(clusters)
         metadata.update(source_metadata or {})
         with psycopg.connect(self._database.dsn, connect_timeout=5) as connection:
@@ -62,6 +72,9 @@ class HotspotRepository:
 
                     for source_file in source_files:
                         scene_id, observed_at = metadata.get(source_file, (None, None))
+                        # Mark the file completed even when clusters is empty.
+                        # A valid file can produce zero persisted hotspots after
+                        # anomaly or duplicate filtering.
                         self._mark_source_file_completed(
                             cursor,
                             satellite,
@@ -102,6 +115,8 @@ class HotspotRepository:
         satellite: str,
         message: str = "reset from stale running state",
     ) -> int:
+        """Move stale running files back to pending before retrying ingestion."""
+
         with psycopg.connect(self._database.dsn, connect_timeout=5) as connection:
             with connection.transaction():
                 with connection.cursor() as cursor:
@@ -118,6 +133,8 @@ class HotspotRepository:
                     return cursor.rowcount
 
     def mark_source_file_running(self, satellite: str, source_file: Path) -> None:
+        """Create or update a checkpoint row before processing starts."""
+
         with psycopg.connect(self._database.dsn, connect_timeout=5) as connection:
             with connection.transaction():
                 with connection.cursor() as cursor:
@@ -134,6 +151,8 @@ class HotspotRepository:
                     )
 
     def mark_source_file_failed(self, satellite: str, source_file: Path, message: str) -> None:
+        """Store parser, enrichment, or persistence failure details for operators."""
+
         with psycopg.connect(self._database.dsn, connect_timeout=5) as connection:
             with connection.transaction():
                 with connection.cursor() as cursor:
@@ -211,6 +230,8 @@ class HotspotRepository:
     @staticmethod
     def _insert_cluster(cursor: psycopg.Cursor, cluster: HotspotCluster) -> int:
         detection = cluster.detections[0]
+        # Conflict handling makes replay idempotent while allowing enrichment
+        # fields to improve after reference data is imported or corrected.
         cursor.execute(
             """
             WITH inserted AS (

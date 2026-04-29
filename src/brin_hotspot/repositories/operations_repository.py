@@ -31,6 +31,8 @@ class SourceFileRecord:
 
 
 class OperationsRepository:
+    """Operator-facing repository for run history and source-file replay controls."""
+
     def __init__(self, database: DatabaseSettings):
         self._database = database
 
@@ -75,6 +77,8 @@ class OperationsRepository:
                 return [SourceFileRecord(*row) for row in cursor.fetchall()]
 
     def mark_source_file_pending(self, *, satellite: str, path: str) -> bool:
+        """Replay one source file by returning it to pending state."""
+
         with psycopg.connect(self._database.dsn, connect_timeout=5) as connection:
             with connection.transaction():
                 with connection.cursor() as cursor:
@@ -91,6 +95,8 @@ class OperationsRepository:
                     return cursor.rowcount > 0
 
     def mark_satellite_sources_pending(self, *, satellite: str, status: str | None = None) -> int:
+        """Replay many files for a satellite, optionally constrained by status."""
+
         with psycopg.connect(self._database.dsn, connect_timeout=5) as connection:
             with connection.transaction():
                 with connection.cursor() as cursor:
@@ -113,6 +119,8 @@ class OperationsRepository:
         satellite: str | None = None,
         message: str = "reset from running state",
     ) -> int:
+        """Recover interrupted files without changing completed or failed files."""
+
         with psycopg.connect(self._database.dsn, connect_timeout=5) as connection:
             with connection.transaction():
                 with connection.cursor() as cursor:

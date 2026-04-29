@@ -43,6 +43,8 @@ const SATELLITE_COLORS: Record<string, string> = {
   terra: "#287c56",
   landsat8: "#6f4dbf"
 };
+// The confidence scale is discrete in the source data, but colors are interpolated
+// so the map and sidebar legend read as one continuous low-to-high risk ramp.
 const CONFIDENCE_VALUES = Array.from({ length: 10 }, (_, index) => index);
 type Basemap = "street" | "satellite";
 
@@ -74,6 +76,8 @@ export default function App() {
   const [bottomRailOpen, setBottomRailOpen] = useState(false);
   const [basemap, setBasemap] = useState<Basemap>("street");
 
+  // Header metrics come from the operational summary, not the current map
+  // payload, so they reflect database totals by satellite.
   const totals = useMemo(() => {
     const satellitesSummary = summary?.satellites ?? [];
     return {
@@ -89,12 +93,16 @@ export default function App() {
   }, [summary]);
   const latestRunsBySatellite = useMemo(() => latestRunPerSatellite(runs), [runs]);
   const latestSourcesBySatellite = useMemo(() => latestSourcesPerSatellite(sources, 2), [sources]);
+  // Prefer the API total so the toolbar reflects the full filtered result even
+  // when the returned GeoJSON feature list is capped.
   const visibleCount = hotspots?.total ?? hotspots?.features.length ?? 0;
 
   useEffect(() => {
     if (!mapNodeRef.current || mapRef.current) {
       return;
     }
+    // The map style is defined inline so street and satellite basemaps can be
+    // switched by toggling layer visibility without rebuilding the map.
     mapRef.current = new maplibregl.Map({
       container: mapNodeRef.current,
       center: [118, -2.5],
@@ -130,6 +138,8 @@ export default function App() {
     });
     mapRef.current.addControl(new maplibregl.NavigationControl({ showCompass: false }), "bottom-right");
     mapRef.current.on("load", () => {
+      // Hotspots are kept in one GeoJSON source and one circle layer; filters are
+      // applied by refetching data, while region selection is a paint update.
       mapRef.current?.addSource("hotspots", {
         type: "geojson",
         data: { type: "FeatureCollection", features: [] }
@@ -214,6 +224,8 @@ export default function App() {
       getSources()
     ]);
     setSummary(summaryData);
+    // On first load, focus the dashboard on the last day with available data
+    // instead of the wall-clock current date, which may not have ingested data.
     if (!defaultDateInitializedRef.current && !observedFrom && !observedTo) {
       const latestDate = latestAvailableDate(summaryData);
       if (latestDate) {
@@ -242,6 +254,7 @@ export default function App() {
   }
 
   function updateProvince(value: string) {
+    // Downstream administrative selections are only valid within their parent.
     setProvince(value);
     setKabupaten("");
     setKecamatan("");
@@ -336,6 +349,7 @@ export default function App() {
               Minimum confidence <strong>{minConfidence}</strong>
             </span>
             <input min="0" max="9" value={minConfidence} onChange={(event) => setMinConfidence(Number(event.target.value))} type="range" />
+            {/* Keep this unlabeled: the selected value is already shown above the slider. */}
             <span className="confidence-scale" aria-label="Confidence color scale">
               {CONFIDENCE_VALUES.map((value) => (
                 <span className="confidence-scale-item" key={value}>
@@ -527,6 +541,8 @@ export default function App() {
 }
 
 function latestRunPerSatellite(runs: IngestionRun[]) {
+  // The API returns recent runs globally; the right rail needs one latest item
+  // per satellite to avoid letting busy satellites hide quieter ones.
   const latest = new Map<string, IngestionRun>();
   for (const run of runs) {
     const current = latest.get(run.satellite);
@@ -538,6 +554,8 @@ function latestRunPerSatellite(runs: IngestionRun[]) {
 }
 
 function latestSourcesPerSatellite(sources: SourceFile[], limit: number) {
+  // Group source files by satellite so the operator can see recent checkpoint
+  // activity across all enabled feeds.
   const grouped = new Map<string, SourceFile[]>();
   for (const source of sources) {
     const items = grouped.get(source.satellite) ?? [];
@@ -558,6 +576,10 @@ function sourceTime(source: SourceFile) {
   return new Date(source.processed_at ?? source.observed_at ?? 0);
 }
 
+/**
+ * Mirrors the MapLibre confidence color expression for React-rendered controls.
+ * Stops are intentionally shared by value with confidenceColorExpression().
+ */
 function confidenceColor(confidence: number) {
   const stops = [
     { value: 0, color: [255, 255, 255] },
@@ -577,6 +599,10 @@ function confidenceColor(confidence: number) {
   return `rgb(${rgb.join(", ")})`;
 }
 
+/**
+ * MapLibre expression for hotspot confidence colors.
+ * The same stop values are used by confidenceColor() for the sidebar scale.
+ */
 function confidenceColorExpression(): maplibregl.ExpressionSpecification {
   return [
     "interpolate",
@@ -603,6 +629,8 @@ function hotspotColorExpression(
   if (!regionMatch) {
     return confidenceColor;
   }
+  // Keep selected-region hotspots on the confidence ramp and grey out
+  // non-selected regions without removing them from spatial context.
   return ["case", regionMatch, confidenceColor, "#9aa6b5"];
 }
 
@@ -623,6 +651,7 @@ function regionMatchExpression(
   kabupaten: string,
   kecamatan: string
 ): maplibregl.ExpressionSpecification | null {
+  // Match the most specific administrative selection currently active.
   if (kecamatan) {
     return ["==", ["get", "kecamatan"], kecamatan];
   }
@@ -724,6 +753,8 @@ function TrendPanel({
   satellites: string[];
 }) {
   const items = trend?.items ?? [];
+  // The backend returns satellite counts by day; the frontend adds the total
+  // series so operators can compare individual feeds with aggregate activity.
   const series = [
     ...satellites.map((satellite) => ({
       key: satellite,
@@ -848,6 +879,7 @@ function barWidth(total: number, maxTotal: number) {
   if (maxTotal <= 0) {
     return 0;
   }
+  // Preserve a small visible bar for non-zero values in very skewed groups.
   return Math.max((total / maxTotal) * 100, 3);
 }
 
@@ -940,6 +972,7 @@ function formatTrendDate(value: string) {
 }
 
 function latestAvailableDate(summary: OperationalSummary) {
+  // Summary timestamps include times; date inputs need only YYYY-MM-DD.
   return summary.satellites
     .map((item) => item.latest_observed_at)
     .filter((value): value is string => Boolean(value))

@@ -18,6 +18,8 @@ import type {
   SourceFile
 } from "./types";
 
+// In production Nginx proxies /api/v1 to the API container. Local Vite
+// development can override this with VITE_HOTSPOT_API_BASE.
 const API_BASE = import.meta.env.VITE_HOTSPOT_API_BASE ?? "/api/v1";
 
 export type HotspotFilters = {
@@ -36,6 +38,8 @@ export async function getSummary(): Promise<OperationalSummary> {
 }
 
 export async function getHotspots(filters: HotspotFilters): Promise<HotspotCollection> {
+  // Avoid an unnecessary API call when the UI state intentionally hides all
+  // satellites. The rest of the dashboard can then render an empty map cleanly.
   if (filters.satellites.length === 0) {
     return { type: "FeatureCollection", total: 0, features: [] };
   }
@@ -51,6 +55,8 @@ export async function getHotspots(filters: HotspotFilters): Promise<HotspotColle
 }
 
 export async function getStatistics(filters: HotspotFilters): Promise<HotspotStatistics> {
+  // Keep the chart title/grouping stable even when there is no selected
+  // satellite data to fetch.
   if (filters.satellites.length === 0) {
     return { level: statisticLevel(filters), items: [] };
   }
@@ -110,6 +116,8 @@ async function getJson<T>(path: string, fallback: T): Promise<T> {
     }
     return (await response.json()) as T;
   } catch {
+    // Mock fallback keeps UI development and demos usable before the database is
+    // populated or when only the frontend dev server is running.
     return fallback;
   }
 }
@@ -125,6 +133,8 @@ function toApiDateTime(value: string, endOfDay = false) {
   if (!value) {
     return "";
   }
+  // The UI uses date-only controls, while the API expects datetimes for
+  // inclusive filtering.
   if (value.length === 10) {
     return `${value}T${endOfDay ? "23:59:59" : "00:00:00"}`;
   }
@@ -132,6 +142,7 @@ function toApiDateTime(value: string, endOfDay = false) {
 }
 
 function statisticLevel(filters: HotspotFilters) {
+  // Mirrors the backend grouping rules used by /statistics.
   if (filters.kecamatan) {
     return "satellite";
   }

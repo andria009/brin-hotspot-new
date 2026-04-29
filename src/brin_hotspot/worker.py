@@ -29,9 +29,13 @@ def run_ingestion_cycle(
     enrich: bool = False,
     continue_on_error: bool = False,
 ) -> tuple[IngestionSummary, ...]:
+    """Run one polling cycle across the selected satellite feeds."""
+
     summaries: list[IngestionSummary] = []
     for satellite in satellites:
         ingest = _ingest_function(satellite)
+        # Input overrides let production use converted MODIS CSV directories
+        # while keeping the default satellite subdirectory convention.
         input_dir = (input_dirs or {}).get(satellite, settings.paths.input_dir / satellite)
         logger.info(
             "worker_satellite_started",
@@ -77,6 +81,8 @@ def run_worker_loop(
     max_cycles: int | None,
     continue_on_error: bool = True,
 ) -> WorkerRunSummary:
+    """Run ingestion cycles until max_cycles is reached or the process stops."""
+
     summaries: list[IngestionSummary] = []
     cycle = 0
     while max_cycles is None or cycle < max_cycles:
@@ -112,6 +118,8 @@ def run_worker_loop(
 
 
 def _ingest_function(satellite: str):
+    """Resolve satellite names lazily so optional parser dependencies stay isolated."""
+
     if satellite == "snpp":
         from brin_hotspot.ingestion.snpp import ingest_snpp
 

@@ -25,6 +25,26 @@ The goal is to provide a reliable, maintainable, and production-oriented hotspot
 - run the worker, API, frontend, database, and MODIS converter as containerized services from the same Docker Compose stack
 - keep raster and scene-overlay support extensible for future satellite image visualization workflows
 
+## Documentation
+
+Developer and operator documentation is available in `docs/`:
+
+- [Backend documentation](docs/backend.md): ingestion, database, source-file checkpointing, worker, MODIS conversion, raster metadata, configuration, and backend operations.
+- [API reference](docs/api-reference.md): read-only API endpoints, filters, response shapes, and integration notes.
+- [Frontend documentation](docs/frontend.md): React/MapLibre dashboard architecture, filters, basemaps, rails, charts, build workflow, and production notes.
+
+## Technology Stack
+
+| Layer | Technologies |
+| --- | --- |
+| Backend application | Python 3.14, Typer CLI, FastAPI, Pydantic, Uvicorn |
+| Database and geospatial storage | PostgreSQL 16, PostGIS 3.4, psycopg |
+| Geospatial/raster tooling | GDAL, HDF4 sidecar conversion, GeoJSON reference data, XYZ tile generation |
+| Frontend application | React 19, TypeScript, Vite, MapLibre GL, Lucide React |
+| Frontend serving | Nginx static hosting with `/api/*` proxying to FastAPI |
+| Container runtime | Docker, Docker Compose, service profiles for worker and MODIS converter |
+| Testing and quality | pytest, Ruff, TypeScript compiler, Vite production build |
+
 ## Supported Inputs
 
 | Command | Input Type | Notes |
