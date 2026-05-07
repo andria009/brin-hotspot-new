@@ -36,7 +36,7 @@ def test_ingest_snpp_can_persist_via_repository(tmp_path, monkeypatch):
         def __init__(self, database):
             calls["database"] = database
 
-        def source_file_completed(self, satellite, path):
+        def source_file_completed(self, satellite, path, *, source_key=None):
             calls.setdefault("source_file_checks", []).append((satellite, path))
             return False
 
@@ -50,10 +50,10 @@ def test_ingest_snpp_can_persist_via_repository(tmp_path, monkeypatch):
         def finish_run(self, run_id, status, message=None):
             calls["finish_run"] = (run_id, status, message)
 
-        def mark_source_file_running(self, satellite, path):
+        def mark_source_file_running(self, satellite, path, *, source_key=None):
             calls.setdefault("running_sources", []).append((satellite, path))
 
-        def mark_source_file_failed(self, satellite, path, message):
+        def mark_source_file_failed(self, satellite, path, message, *, source_key=None):
             calls.setdefault("failed_sources", []).append((satellite, path, message))
 
         def persist_ingestion(self, **kwargs):
@@ -105,7 +105,7 @@ def test_ingest_snpp_can_enrich_before_persisting(tmp_path, monkeypatch):
         def __init__(self, database):
             calls["hotspot_database"] = database
 
-        def source_file_completed(self, satellite, path):
+        def source_file_completed(self, satellite, path, *, source_key=None):
             return False
 
         def reset_running_source_files(self, *, satellite, message):
@@ -118,10 +118,10 @@ def test_ingest_snpp_can_enrich_before_persisting(tmp_path, monkeypatch):
         def finish_run(self, run_id, status, message=None):
             calls["finish_run"] = (run_id, status, message)
 
-        def mark_source_file_running(self, satellite, path):
+        def mark_source_file_running(self, satellite, path, *, source_key=None):
             calls.setdefault("running_sources", []).append((satellite, path))
 
-        def mark_source_file_failed(self, satellite, path, message):
+        def mark_source_file_failed(self, satellite, path, message, *, source_key=None):
             calls.setdefault("failed_sources", []).append((satellite, path, message))
 
         def persist_ingestion(self, **kwargs):
@@ -174,7 +174,7 @@ def test_ingest_snpp_completes_source_when_enrichment_filters_all(tmp_path, monk
         def __init__(self, database):
             pass
 
-        def source_file_completed(self, satellite, path):
+        def source_file_completed(self, satellite, path, *, source_key=None):
             return False
 
         def reset_running_source_files(self, *, satellite, message):
@@ -186,10 +186,10 @@ def test_ingest_snpp_completes_source_when_enrichment_filters_all(tmp_path, monk
         def finish_run(self, run_id, status, message=None):
             calls["finish_run"] = (run_id, status, message)
 
-        def mark_source_file_running(self, satellite, path):
+        def mark_source_file_running(self, satellite, path, *, source_key=None):
             calls.setdefault("running_sources", []).append(path)
 
-        def mark_source_file_failed(self, satellite, path, message):
+        def mark_source_file_failed(self, satellite, path, message, *, source_key=None):
             calls.setdefault("failed_sources", []).append((path, message))
 
         def persist_ingestion(self, **kwargs):
@@ -224,6 +224,8 @@ def test_ingest_snpp_completes_source_when_enrichment_filters_all(tmp_path, monk
 
 
 def test_ingest_snpp_skips_completed_source_files(tmp_path, monkeypatch):
+    calls = {}
+
     class FakeRepository:
         def __init__(self, database):
             pass
@@ -237,13 +239,14 @@ def test_ingest_snpp_skips_completed_source_files(tmp_path, monkeypatch):
         def finish_run(self, run_id, status, message=None):
             pass
 
-        def source_file_completed(self, satellite, path):
+        def source_file_completed(self, satellite, path, *, source_key=None):
+            calls["source_key"] = source_key
             return True
 
-        def mark_source_file_running(self, satellite, path):
+        def mark_source_file_running(self, satellite, path, *, source_key=None):
             raise AssertionError("completed source files should not be marked running")
 
-        def mark_source_file_failed(self, satellite, path, message):
+        def mark_source_file_failed(self, satellite, path, message, *, source_key=None):
             raise AssertionError("skip should not be treated as failure")
 
         def persist_ingestion(self, **kwargs):
@@ -266,6 +269,29 @@ def test_ingest_snpp_skips_completed_source_files(tmp_path, monkeypatch):
     assert summary.parsed_count == 0
     assert summary.cluster_count == 0
     assert len(summary.skipped_files) == 1
+    assert calls["source_key"] == "AFIMG_npp_d20260424_t0543590"
+
+
+def test_ingest_snpp_accepts_multiple_input_dirs(tmp_path):
+    fixture_file = next(Path("tests/fixtures/snpp").rglob("AFIMG_npp*.txt"))
+    first = tmp_path / "first" / fixture_file.name
+    second = tmp_path / "second" / fixture_file.name.replace("t0543590", "t0643590")
+    first.parent.mkdir(parents=True)
+    second.parent.mkdir(parents=True)
+    first.write_text(fixture_file.read_text(encoding="utf-8"), encoding="utf-8")
+    second.write_text(fixture_file.read_text(encoding="utf-8"), encoding="utf-8")
+    settings = Settings(
+        paths=PathSettings(
+            input_dir=tmp_path / "unused",
+            output_dir=tmp_path / "output",
+            log_dir=tmp_path / "logs",
+        )
+    )
+
+    summary = ingest_snpp(settings, input_dirs=(first.parent, second.parent))
+
+    assert summary.parsed_count == 6
+    assert summary.cluster_count == 4
 
 
 def test_ingest_snpp_persists_each_source_file_independently(tmp_path, monkeypatch):
@@ -286,7 +312,7 @@ def test_ingest_snpp_persists_each_source_file_independently(tmp_path, monkeypat
         def __init__(self, database):
             pass
 
-        def source_file_completed(self, satellite, path):
+        def source_file_completed(self, satellite, path, *, source_key=None):
             return False
 
         def reset_running_source_files(self, *, satellite, message):
@@ -299,10 +325,10 @@ def test_ingest_snpp_persists_each_source_file_independently(tmp_path, monkeypat
         def finish_run(self, run_id, status, message=None):
             calls["finish_run"] = (run_id, status, message)
 
-        def mark_source_file_running(self, satellite, path):
+        def mark_source_file_running(self, satellite, path, *, source_key=None):
             calls.setdefault("running_sources", []).append(path)
 
-        def mark_source_file_failed(self, satellite, path, message):
+        def mark_source_file_failed(self, satellite, path, message, *, source_key=None):
             calls.setdefault("failed_sources", []).append((path, message))
 
         def persist_ingestion(self, **kwargs):

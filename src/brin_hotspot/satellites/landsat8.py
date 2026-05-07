@@ -71,7 +71,7 @@ def find_landsat8_sources(input_dir: PathLike) -> list[SourceItem]:
             grouped_files[scene_key].append(path)
 
     return [
-        SourceItem(path=Path("landsat8") / scene_key, files=tuple(paths))
+        SourceItem(path=Path("landsat8") / scene_key, files=tuple(paths), source_key=scene_key)
         for scene_key, paths in sorted(grouped_files.items())
     ]
 

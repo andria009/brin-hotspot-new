@@ -11,6 +11,7 @@ from brin_hotspot.satellites.noaa20 import NOAA20_SETTINGS, find_noaa20_files, p
 def ingest_noaa20(
     settings: Settings,
     input_dir: Path | None = None,
+    input_dirs: tuple[Path, ...] | None = None,
     *,
     persist: bool = False,
     enrich: bool = False,
@@ -21,7 +22,7 @@ def ingest_noaa20(
         find_files=find_noaa20_files,
         parse_file=parse_noaa20_file,
         input_dir=input_dir,
+        input_dirs=input_dirs,
         persist=persist,
         enrich=enrich,
     )
-

@@ -5,9 +5,9 @@ from brin_hotspot.domain import HotspotDetection
 from brin_hotspot.ingestion.sources import SourceItem
 from brin_hotspot.satellites.modis import (
     AQUA_SETTINGS,
-    TERRA_SETTINGS,
+    TERA_SETTINGS,
     find_aqua_files,
-    find_terra_files,
+    find_tera_files,
     normalize_modis_confidence,
     parse_modis_converted_csv_file,
     parse_modis_file,
@@ -29,7 +29,7 @@ def test_parse_modis_observed_at_and_satellite_from_filename():
         "a1.26115.0530.mod14"
     )
     assert settings_from_modis_filename(path) == AQUA_SETTINGS
-    assert settings_from_modis_filename("t1.26115.0530.mod14.hdf") == TERRA_SETTINGS
+    assert settings_from_modis_filename("t1.26115.0530.mod14.hdf") == TERA_SETTINGS
 
 
 def test_normalize_modis_confidence():
@@ -86,13 +86,13 @@ def test_parse_modis_records():
 
 def test_find_modis_files(tmp_path):
     aqua = tmp_path / "a1.26115.0530.mod14.hdf"
-    terra = tmp_path / "t1.26115.0530.mod14.hdf"
+    tera = tmp_path / "t1.26115.0530.mod14.hdf"
     ignored = tmp_path / "a1.26115.0530.other.hdf"
-    for path in (aqua, terra, ignored):
+    for path in (aqua, tera, ignored):
         path.write_text("", encoding="utf-8")
 
     assert find_aqua_files(tmp_path) == [aqua]
-    assert find_terra_files(tmp_path) == [terra]
+    assert find_tera_files(tmp_path) == [tera]
 
 
 def test_find_modis_files_prefers_converted_csv(tmp_path):
@@ -147,7 +147,7 @@ def test_parse_modis_file_dispatches_converted_csv(tmp_path):
     detections = parse_modis_file(path)
 
     assert len(detections) == 1
-    assert detections[0].satellite == "terra"
+    assert detections[0].satellite == "tera"
     assert detections[0].confidence == 9
 
 

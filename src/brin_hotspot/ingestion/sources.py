@@ -18,7 +18,8 @@ class SatelliteInputSettings:
 class SourceItem:
     path: Path
     files: tuple[Path, ...]
+    source_key: str | None = None
 
     @classmethod
-    def single(cls, path: Path) -> SourceItem:
-        return cls(path=path, files=(path,))
+    def single(cls, path: Path, source_key: str | None = None) -> SourceItem:
+        return cls(path=path, files=(path,), source_key=source_key)

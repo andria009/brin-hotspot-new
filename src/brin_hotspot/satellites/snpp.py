@@ -32,7 +32,7 @@ def parse_viirs_text_file(
 ) -> list[HotspotDetection]:
     path = Path(path)
     observed_at = parse_observed_at_from_path(path)
-    scene_id = "_".join(path.name.split("_")[:4])
+    scene_id = scene_id_from_viirs_path(path)
     detections: list[HotspotDetection] = []
 
     with path.open(encoding="utf-8") as handle:
@@ -66,6 +66,10 @@ def parse_snpp_file(path: PathLike) -> list[HotspotDetection]:
 
 def parse_noaa20_file(path: PathLike) -> list[HotspotDetection]:
     return parse_viirs_text_file(path, NOAA20_SETTINGS)
+
+
+def scene_id_from_viirs_path(path: PathLike) -> str:
+    return "_".join(Path(path).name.split("_")[:4])
 
 
 def parse_observed_at_from_path(path: PathLike) -> datetime:

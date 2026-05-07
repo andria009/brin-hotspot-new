@@ -35,12 +35,12 @@ import type {
   SourceFile
 } from "./types";
 
-const SATELLITES = ["snpp", "noaa20", "aqua", "terra", "landsat8"];
+const SATELLITES = ["snpp", "noaa20", "aqua", "tera", "landsat8"];
 const SATELLITE_COLORS: Record<string, string> = {
   snpp: "#b7192b",
   noaa20: "#e76f2c",
   aqua: "#2f80ed",
-  terra: "#287c56",
+  tera: "#287c56",
   landsat8: "#6f4dbf"
 };
 // The confidence scale is discrete in the source data, but colors are interpolated
@@ -59,7 +59,7 @@ export default function App() {
   const [runs, setRuns] = useState<IngestionRun[]>([]);
   const [sources, setSources] = useState<SourceFile[]>([]);
   const [kind, setKind] = useState<HotspotKind>("cluster");
-  const [satellites, setSatellites] = useState<string[]>(["snpp", "noaa20", "aqua"]);
+  const [satellites, setSatellites] = useState<string[]>(["snpp", "noaa20", "aqua", "tera"]);
   const [minConfidence, setMinConfidence] = useState(7);
   const [observedFrom, setObservedFrom] = useState("");
   const [observedTo, setObservedTo] = useState("");
@@ -93,6 +93,15 @@ export default function App() {
   }, [summary]);
   const latestRunsBySatellite = useMemo(() => latestRunPerSatellite(runs), [runs]);
   const latestSourcesBySatellite = useMemo(() => latestSourcesPerSatellite(sources, 2), [sources]);
+  const sourceStatusRows = useMemo(() => {
+    const rows = summary?.source_statuses ?? [];
+    return SATELLITES.flatMap((satellite) => {
+      const satelliteRows = rows.filter((status) => status.satellite === satellite);
+      return satelliteRows.length > 0
+        ? satelliteRows
+        : [{ satellite, status: "no sources", count: 0 }];
+    });
+  }, [summary]);
   // Prefer the API total so the toolbar reflects the full filtered result even
   // when the returned GeoJSON feature list is capped.
   const visibleCount = hotspots?.total ?? hotspots?.features.length ?? 0;
@@ -496,7 +505,7 @@ export default function App() {
               <Layers size={16} />
               <span>Status</span>
             </div>
-            {(summary?.source_statuses ?? []).map((status) => (
+            {sourceStatusRows.map((status) => (
               <div className="status-row" key={`${status.satellite}-${status.status}`}>
                 <span>{status.satellite.toUpperCase()} · {status.status}</span>
                 <strong>{status.count}</strong>

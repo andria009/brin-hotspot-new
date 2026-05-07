@@ -18,9 +18,9 @@ AQUA_SETTINGS = SatelliteInputSettings(
     resolution_meters=1000.0,
     duplicate_buffer_degrees=0.009009,
 )
-TERRA_SETTINGS = replace(AQUA_SETTINGS, satellite="terra", input_subdir="terra")
+TERA_SETTINGS = replace(AQUA_SETTINGS, satellite="tera", input_subdir="tera")
 
-_SATELLITE_PREFIXES = {"a1": AQUA_SETTINGS, "t1": TERRA_SETTINGS}
+_SATELLITE_PREFIXES = {"a1": AQUA_SETTINGS, "t1": TERA_SETTINGS}
 
 
 def parse_modis_file(
@@ -47,7 +47,7 @@ def parse_modis_hdf_file(
     except ImportError as exc:
         raise RuntimeError(
             "MODIS HDF parsing requires pyhdf. Install the HDF optional dependency "
-            "in environments that process AQUA/TERRA MOD14 files."
+            "in environments that process AQUA/TERA MOD14 files."
         ) from exc
 
     hdf = SD(str(path), SDC.READ)
@@ -178,7 +178,7 @@ def find_aqua_files(input_dir: PathLike) -> list[Path]:
     return _find_modis_files(input_dir, prefix="a1")
 
 
-def find_terra_files(input_dir: PathLike) -> list[Path]:
+def find_tera_files(input_dir: PathLike) -> list[Path]:
     return _find_modis_files(input_dir, prefix="t1")
 
 

@@ -6,7 +6,7 @@ This repository contains a legacy hotspot processing pipeline for Indonesia fire
 
 Main subsystems:
 
-- `Hotspot_sys`: hotspot ingestion for SNPP, NOAA20, Landsat-8, MODIS Aqua, and MODIS Terra.
+- `Hotspot_sys`: hotspot ingestion for SNPP, NOAA20, Landsat-8, MODIS Aqua, and MODIS Tera.
 - `Tile_sys`: GeoTIFF-to-tile generation and raster metadata registration.
 - `L8_fireproduct`, `MODIS_fireproduct`, `VIIRS_fireproduct`: satellite fire product processing areas.
 - `Notifikasi`: email notification and error notification scripts.

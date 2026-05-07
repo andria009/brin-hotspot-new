@@ -107,11 +107,14 @@ def migrate_command() -> None:
 
 @ingest_app.command("snpp")
 def ingest_snpp_command(
-    input_dir: Annotated[
-        Path | None,
+    input_dirs: Annotated[
+        list[Path] | None,
         typer.Option(
             "--input-dir",
-            help="SNPP input directory. Defaults to HOTSPOT_INPUT_DIR/snpp.",
+            help=(
+                "SNPP input directory. Repeat for multiple roots. "
+                "Defaults to HOTSPOT_INPUT_DIR/snpp."
+            ),
         ),
     ] = None,
     persist: Annotated[
@@ -134,17 +137,25 @@ def ingest_snpp_command(
         typer.echo("--enrich requires --database", err=True)
         raise typer.Exit(2)
 
-    summary = ingest_snpp(settings, input_dir=input_dir, persist=persist, enrich=enrich)
+    summary = ingest_snpp(
+        settings,
+        input_dirs=tuple(input_dirs) if input_dirs else None,
+        persist=persist,
+        enrich=enrich,
+    )
     _echo_ingestion_summary(summary)
 
 
 @ingest_app.command("noaa20")
 def ingest_noaa20_command(
-    input_dir: Annotated[
-        Path | None,
+    input_dirs: Annotated[
+        list[Path] | None,
         typer.Option(
             "--input-dir",
-            help="NOAA20 input directory. Defaults to HOTSPOT_INPUT_DIR/noaa20.",
+            help=(
+                "NOAA20 input directory. Repeat for multiple roots. "
+                "Defaults to HOTSPOT_INPUT_DIR/noaa20."
+            ),
         ),
     ] = None,
     persist: Annotated[
@@ -167,17 +178,25 @@ def ingest_noaa20_command(
         typer.echo("--enrich requires --database", err=True)
         raise typer.Exit(2)
 
-    summary = ingest_noaa20(settings, input_dir=input_dir, persist=persist, enrich=enrich)
+    summary = ingest_noaa20(
+        settings,
+        input_dirs=tuple(input_dirs) if input_dirs else None,
+        persist=persist,
+        enrich=enrich,
+    )
     _echo_ingestion_summary(summary)
 
 
 @ingest_app.command("aqua")
 def ingest_aqua_command(
-    input_dir: Annotated[
-        Path | None,
+    input_dirs: Annotated[
+        list[Path] | None,
         typer.Option(
             "--input-dir",
-            help="AQUA MODIS input directory. Defaults to HOTSPOT_INPUT_DIR/aqua.",
+            help=(
+                "AQUA MODIS input directory. Repeat for multiple roots. "
+                "Defaults to HOTSPOT_INPUT_DIR/aqua."
+            ),
         ),
     ] = None,
     persist: Annotated[
@@ -200,17 +219,25 @@ def ingest_aqua_command(
         typer.echo("--enrich requires --database", err=True)
         raise typer.Exit(2)
 
-    summary = ingest_aqua(settings, input_dir=input_dir, persist=persist, enrich=enrich)
+    summary = ingest_aqua(
+        settings,
+        input_dirs=tuple(input_dirs) if input_dirs else None,
+        persist=persist,
+        enrich=enrich,
+    )
     _echo_ingestion_summary(summary)
 
 
-@ingest_app.command("terra")
-def ingest_terra_command(
-    input_dir: Annotated[
-        Path | None,
+@ingest_app.command("tera")
+def ingest_tera_command(
+    input_dirs: Annotated[
+        list[Path] | None,
         typer.Option(
             "--input-dir",
-            help="TERRA MODIS input directory. Defaults to HOTSPOT_INPUT_DIR/terra.",
+            help=(
+                "TERA MODIS input directory. Repeat for multiple roots. "
+                "Defaults to HOTSPOT_INPUT_DIR/tera."
+            ),
         ),
     ] = None,
     persist: Annotated[
@@ -225,25 +252,33 @@ def ingest_terra_command(
         ),
     ] = False,
 ) -> None:
-    """Parse TERRA MODIS HDF hotspot files, cluster detections, and write CSV outputs."""
-    from brin_hotspot.ingestion.modis import ingest_terra
+    """Parse TERA MODIS HDF hotspot files, cluster detections, and write CSV outputs."""
+    from brin_hotspot.ingestion.modis import ingest_tera
 
     settings = _bootstrap()
     if enrich and not persist:
         typer.echo("--enrich requires --database", err=True)
         raise typer.Exit(2)
 
-    summary = ingest_terra(settings, input_dir=input_dir, persist=persist, enrich=enrich)
+    summary = ingest_tera(
+        settings,
+        input_dirs=tuple(input_dirs) if input_dirs else None,
+        persist=persist,
+        enrich=enrich,
+    )
     _echo_ingestion_summary(summary)
 
 
 @ingest_app.command("landsat8")
 def ingest_landsat8_command(
-    input_dir: Annotated[
-        Path | None,
+    input_dirs: Annotated[
+        list[Path] | None,
         typer.Option(
             "--input-dir",
-            help="Landsat 8 input directory. Defaults to HOTSPOT_INPUT_DIR/landsat8.",
+            help=(
+                "Landsat 8 input directory. Repeat for multiple roots. "
+                "Defaults to HOTSPOT_INPUT_DIR/landsat8."
+            ),
         ),
     ] = None,
     persist: Annotated[
@@ -266,7 +301,12 @@ def ingest_landsat8_command(
         typer.echo("--enrich requires --database", err=True)
         raise typer.Exit(2)
 
-    summary = ingest_landsat8(settings, input_dir=input_dir, persist=persist, enrich=enrich)
+    summary = ingest_landsat8(
+        settings,
+        input_dirs=tuple(input_dirs) if input_dirs else None,
+        persist=persist,
+        enrich=enrich,
+    )
     _echo_ingestion_summary(summary)
 
 
@@ -475,7 +515,7 @@ def worker_run_once_command(
         raise typer.Exit(2)
     summaries = run_ingestion_cycle(
         settings,
-        satellites=tuple(satellites or ["snpp", "noaa20", "aqua", "terra", "landsat8"]),
+        satellites=tuple(satellites or ["snpp", "noaa20", "aqua", "tera", "landsat8"]),
         input_dirs=_parse_worker_input_dirs(input_overrides),
         persist=persist,
         enrich=enrich,
@@ -530,7 +570,7 @@ def worker_loop_command(
         raise typer.Exit(2)
     summary = run_worker_loop(
         settings,
-        satellites=tuple(satellites or ["snpp", "noaa20", "aqua", "terra", "landsat8"]),
+        satellites=tuple(satellites or ["snpp", "noaa20", "aqua", "tera", "landsat8"]),
         input_dirs=_parse_worker_input_dirs(input_overrides),
         persist=persist,
         enrich=enrich,
@@ -543,15 +583,15 @@ def worker_loop_command(
     )
 
 
-def _parse_worker_input_dirs(input_overrides: list[str] | None) -> dict[str, Path]:
-    input_dirs: dict[str, Path] = {}
+def _parse_worker_input_dirs(input_overrides: list[str] | None) -> dict[str, tuple[Path, ...]]:
+    input_dirs: dict[str, list[Path]] = {}
     for value in input_overrides or []:
         satellite, separator, path = value.partition("=")
         if not separator or not satellite or not path:
             typer.echo("--input must use satellite=/path format", err=True)
             raise typer.Exit(2)
-        input_dirs[satellite.strip().lower()] = Path(path)
-    return input_dirs
+        input_dirs.setdefault(satellite.strip().lower(), []).append(Path(path))
+    return {satellite: tuple(paths) for satellite, paths in input_dirs.items()}
 
 
 def _echo_records(rows: list[dict[str, Any]]) -> None:

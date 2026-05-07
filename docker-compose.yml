@@ -27,6 +27,7 @@ services:
       HOTSPOT_ENV: ${HOTSPOT_ENV:-development}
       HOTSPOT_LOG_LEVEL: ${HOTSPOT_LOG_LEVEL:-INFO}
       HOTSPOT_LOG_FORMAT: ${HOTSPOT_LOG_FORMAT:-json}
+      HOTSPOT_TRACE_FILES: ${HOTSPOT_TRACE_FILES:-false}
       HOTSPOT_DB_HOST: ${HOTSPOT_DB_HOST:-db}
       HOTSPOT_DB_PORT: ${HOTSPOT_DB_PORT:-5432}
       HOTSPOT_DB_NAME: ${HOTSPOT_DB_NAME:-hotspot}
@@ -41,15 +42,18 @@ services:
       - ./data/reference:/app/data/reference:ro
       - ./logs:/app/logs
       - /mnt/geomimo-data/DataProses/Suomi-NPP:/app/data/input/snpp:ro
+      - /mnt/geomimo-data/DataProses/BUFFER/CloudData/Produk/SNPP:/app/data/input/snpp-buffer:ro
       - /mnt/geomimo-data/DataProses/NOAA-20:/app/data/input/noaa20:ro
+      - /mnt/geomimo-data/DataProses/BUFFER/CloudData/Produk/NOAA20:/app/data/input/noaa20-buffer:ro
       - /mnt/geomimo-data/DataProses/AQUA:/app/data/input/aqua:ro
-      - /mnt/geomimo-data/DataProses/Terra:/app/data/input/terra:ro
+      - /mnt/geomimo-data/DataProses/Terra:/app/data/input/tera:ro
+      - /mnt/geomimo-data/DataProses/BUFFER/CloudData/Produk/modis:/app/data/input/modis-buffer:ro
     depends_on:
       db:
         condition: service_healthy
     command: ["hotspot", "health"]
 
-  worker-service:
+  worker-snpp-service:
     build:
       context: .
       dockerfile: Dockerfile
@@ -62,6 +66,7 @@ services:
       HOTSPOT_ENV: ${HOTSPOT_ENV:-development}
       HOTSPOT_LOG_LEVEL: ${HOTSPOT_LOG_LEVEL:-INFO}
       HOTSPOT_LOG_FORMAT: ${HOTSPOT_LOG_FORMAT:-json}
+      HOTSPOT_TRACE_FILES: ${HOTSPOT_TRACE_FILES:-false}
       HOTSPOT_DB_HOST: ${HOTSPOT_DB_HOST:-db}
       HOTSPOT_DB_PORT: ${HOTSPOT_DB_PORT:-5432}
       HOTSPOT_DB_NAME: ${HOTSPOT_DB_NAME:-hotspot}
@@ -76,9 +81,12 @@ services:
       - ./data/reference:/app/data/reference:ro
       - ./logs:/app/logs
       - /mnt/geomimo-data/DataProses/Suomi-NPP:/app/data/input/snpp:ro
+      - /mnt/geomimo-data/DataProses/BUFFER/CloudData/Produk/SNPP:/app/data/input/snpp-buffer:ro
       - /mnt/geomimo-data/DataProses/NOAA-20:/app/data/input/noaa20:ro
+      - /mnt/geomimo-data/DataProses/BUFFER/CloudData/Produk/NOAA20:/app/data/input/noaa20-buffer:ro
       - /mnt/geomimo-data/DataProses/AQUA:/app/data/input/aqua:ro
-      - /mnt/geomimo-data/DataProses/Terra:/app/data/input/terra:ro
+      - /mnt/geomimo-data/DataProses/Terra:/app/data/input/tera:ro
+      - /mnt/geomimo-data/DataProses/BUFFER/CloudData/Produk/modis:/app/data/input/modis-buffer:ro
     depends_on:
       db:
         condition: service_healthy
@@ -89,12 +97,159 @@ services:
         "loop",
         "--satellite",
         "snpp",
+        "--input",
+        "snpp=/app/data/input/snpp",
+        "--input",
+        "snpp=/app/data/input/snpp-buffer",
+        "--database",
+        "--enrich",
+        "--interval-seconds",
+        "${HOTSPOT_WORKER_INTERVAL_SECONDS:-300}",
+        "--max-cycles",
+        "${HOTSPOT_WORKER_MAX_CYCLES:-0}",
+      ]
+
+  worker-noaa20-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    profiles: ["service"]
+    restart: unless-stopped
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      HOTSPOT_ENV: ${HOTSPOT_ENV:-development}
+      HOTSPOT_LOG_LEVEL: ${HOTSPOT_LOG_LEVEL:-INFO}
+      HOTSPOT_LOG_FORMAT: ${HOTSPOT_LOG_FORMAT:-json}
+      HOTSPOT_TRACE_FILES: ${HOTSPOT_TRACE_FILES:-false}
+      HOTSPOT_DB_HOST: ${HOTSPOT_DB_HOST:-db}
+      HOTSPOT_DB_PORT: ${HOTSPOT_DB_PORT:-5432}
+      HOTSPOT_DB_NAME: ${HOTSPOT_DB_NAME:-hotspot}
+      HOTSPOT_DB_USER: ${HOTSPOT_DB_USER:-hotspot}
+      HOTSPOT_DB_PASSWORD: ${HOTSPOT_DB_PASSWORD:-hotspot_dev}
+      HOTSPOT_RASTER_DB_NAME: ${HOTSPOT_RASTER_DB_NAME:-raster}
+      HOTSPOT_INPUT_DIR: ${HOTSPOT_INPUT_DIR:-/app/data/input}
+      HOTSPOT_OUTPUT_DIR: ${HOTSPOT_OUTPUT_DIR:-/app/data/output}
+      HOTSPOT_LOG_DIR: ${HOTSPOT_LOG_DIR:-/app/logs}
+    volumes:
+      - ./data/output:/app/data/output
+      - ./data/reference:/app/data/reference:ro
+      - ./logs:/app/logs
+      - /mnt/geomimo-data/DataProses/NOAA-20:/app/data/input/noaa20:ro
+      - /mnt/geomimo-data/DataProses/BUFFER/CloudData/Produk/NOAA20:/app/data/input/noaa20-buffer:ro
+    depends_on:
+      db:
+        condition: service_healthy
+    command:
+      [
+        "hotspot",
+        "worker",
+        "loop",
         "--satellite",
         "noaa20",
+        "--input",
+        "noaa20=/app/data/input/noaa20",
+        "--input",
+        "noaa20=/app/data/input/noaa20-buffer",
+        "--database",
+        "--enrich",
+        "--interval-seconds",
+        "${HOTSPOT_WORKER_INTERVAL_SECONDS:-300}",
+        "--max-cycles",
+        "${HOTSPOT_WORKER_MAX_CYCLES:-0}",
+      ]
+
+  worker-aqua-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    profiles: ["service"]
+    restart: unless-stopped
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      HOTSPOT_ENV: ${HOTSPOT_ENV:-development}
+      HOTSPOT_LOG_LEVEL: ${HOTSPOT_LOG_LEVEL:-INFO}
+      HOTSPOT_LOG_FORMAT: ${HOTSPOT_LOG_FORMAT:-json}
+      HOTSPOT_TRACE_FILES: ${HOTSPOT_TRACE_FILES:-false}
+      HOTSPOT_DB_HOST: ${HOTSPOT_DB_HOST:-db}
+      HOTSPOT_DB_PORT: ${HOTSPOT_DB_PORT:-5432}
+      HOTSPOT_DB_NAME: ${HOTSPOT_DB_NAME:-hotspot}
+      HOTSPOT_DB_USER: ${HOTSPOT_DB_USER:-hotspot}
+      HOTSPOT_DB_PASSWORD: ${HOTSPOT_DB_PASSWORD:-hotspot_dev}
+      HOTSPOT_RASTER_DB_NAME: ${HOTSPOT_RASTER_DB_NAME:-raster}
+      HOTSPOT_INPUT_DIR: ${HOTSPOT_INPUT_DIR:-/app/data/input}
+      HOTSPOT_OUTPUT_DIR: ${HOTSPOT_OUTPUT_DIR:-/app/data/output}
+      HOTSPOT_LOG_DIR: ${HOTSPOT_LOG_DIR:-/app/logs}
+    volumes:
+      - ./data/output:/app/data/output
+      - ./data/reference:/app/data/reference:ro
+      - ./logs:/app/logs
+    depends_on:
+      db:
+        condition: service_healthy
+    command:
+      [
+        "hotspot",
+        "worker",
+        "loop",
         "--satellite",
         "aqua",
         "--input",
-        "aqua=/app/data/output/modis-converted/aqua",
+        "aqua=/app/data/output/modis-converted/aqua/original",
+        "--input",
+        "aqua=/app/data/output/modis-converted/aqua/buffer",
+        "--database",
+        "--enrich",
+        "--interval-seconds",
+        "${HOTSPOT_WORKER_INTERVAL_SECONDS:-300}",
+        "--max-cycles",
+        "${HOTSPOT_WORKER_MAX_CYCLES:-0}",
+      ]
+
+  worker-tera-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    profiles: ["service"]
+    restart: unless-stopped
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      HOTSPOT_ENV: ${HOTSPOT_ENV:-development}
+      HOTSPOT_LOG_LEVEL: ${HOTSPOT_LOG_LEVEL:-INFO}
+      HOTSPOT_LOG_FORMAT: ${HOTSPOT_LOG_FORMAT:-json}
+      HOTSPOT_TRACE_FILES: ${HOTSPOT_TRACE_FILES:-false}
+      HOTSPOT_DB_HOST: ${HOTSPOT_DB_HOST:-db}
+      HOTSPOT_DB_PORT: ${HOTSPOT_DB_PORT:-5432}
+      HOTSPOT_DB_NAME: ${HOTSPOT_DB_NAME:-hotspot}
+      HOTSPOT_DB_USER: ${HOTSPOT_DB_USER:-hotspot}
+      HOTSPOT_DB_PASSWORD: ${HOTSPOT_DB_PASSWORD:-hotspot_dev}
+      HOTSPOT_RASTER_DB_NAME: ${HOTSPOT_RASTER_DB_NAME:-raster}
+      HOTSPOT_INPUT_DIR: ${HOTSPOT_INPUT_DIR:-/app/data/input}
+      HOTSPOT_OUTPUT_DIR: ${HOTSPOT_OUTPUT_DIR:-/app/data/output}
+      HOTSPOT_LOG_DIR: ${HOTSPOT_LOG_DIR:-/app/logs}
+    volumes:
+      - ./data/output:/app/data/output
+      - ./data/reference:/app/data/reference:ro
+      - ./logs:/app/logs
+    depends_on:
+      db:
+        condition: service_healthy
+    command:
+      [
+        "hotspot",
+        "worker",
+        "loop",
+        "--satellite",
+        "tera",
+        "--input",
+        "tera=/app/data/output/modis-converted/tera/original",
+        "--input",
+        "tera=/app/data/output/modis-converted/tera/buffer",
         "--database",
         "--enrich",
         "--interval-seconds",
@@ -114,6 +269,7 @@ services:
       HOTSPOT_ENV: ${HOTSPOT_ENV:-development}
       HOTSPOT_LOG_LEVEL: ${HOTSPOT_LOG_LEVEL:-INFO}
       HOTSPOT_LOG_FORMAT: ${HOTSPOT_LOG_FORMAT:-json}
+      HOTSPOT_TRACE_FILES: ${HOTSPOT_TRACE_FILES:-false}
       HOTSPOT_DB_HOST: ${HOTSPOT_DB_HOST:-db}
       HOTSPOT_DB_PORT: ${HOTSPOT_DB_PORT:-5432}
       HOTSPOT_DB_NAME: ${HOTSPOT_DB_NAME:-hotspot}
@@ -146,7 +302,8 @@ services:
     volumes:
       - ./data/output/modis-converted:/app/data/output/modis-converted
       - /mnt/geomimo-data/DataProses/AQUA:/app/data/input/aqua:ro
-      - /mnt/geomimo-data/DataProses/Terra:/app/data/input/terra:ro
+      - /mnt/geomimo-data/DataProses/Terra:/app/data/input/tera:ro
+      - /mnt/geomimo-data/DataProses/BUFFER/CloudData/Produk/modis:/app/data/input/modis-buffer:ro
     command:
       [
         "--input-dir",
@@ -155,7 +312,7 @@ services:
         "/app/data/output/modis-converted",
       ]
 
-  modis-converter-service:
+  modis-converter-aqua-service:
     build:
       context: .
       dockerfile: Dockerfile.modis-converter
@@ -163,19 +320,65 @@ services:
     restart: unless-stopped
     environment:
       MODIS_CONVERTER_INTERVAL_SECONDS: ${MODIS_CONVERTER_INTERVAL_SECONDS:-300}
+      MODIS_CONVERTER_DEBUG: ${MODIS_CONVERTER_DEBUG:-false}
     volumes:
       - ./data/output/modis-converted:/app/data/output/modis-converted
       - /mnt/geomimo-data/DataProses/AQUA:/app/data/input/aqua:ro
-      - /mnt/geomimo-data/DataProses/Terra:/app/data/input/terra:ro
+      - /mnt/geomimo-data/DataProses/BUFFER/CloudData/Produk/modis:/app/data/input/modis-buffer:ro
     entrypoint: ["sh", "-lc"]
     command:
       - |
         while true; do
-          python /app/tools/modis_converter/convert_modis_hdf.py \
+          if [ "$${MODIS_CONVERTER_DEBUG:-false}" = "true" ]; then debug_flag="--debug"; else debug_flag=""; fi
+          echo "modis-converter started satellite=aqua source=original input=/app/data/input/aqua output=/app/data/output/modis-converted/aqua/original"
+          python -u /app/tools/modis_converter/convert_modis_hdf.py \
             --input-dir /app/data/input/aqua \
-            --output-dir /app/data/output/modis-converted/aqua \
+            --output-dir /app/data/output/modis-converted/aqua/original \
             --satellite aqua \
-            --skip-existing
+            --skip-existing \
+            $${debug_flag}
+          echo "modis-converter started satellite=aqua source=buffer input=/app/data/input/modis-buffer/raw output=/app/data/output/modis-converted/aqua/buffer"
+          python -u /app/tools/modis_converter/convert_modis_hdf.py \
+            --input-dir /app/data/input/modis-buffer/raw \
+            --output-dir /app/data/output/modis-converted/aqua/buffer \
+            --satellite aqua \
+            --skip-existing \
+            $${debug_flag}
+          sleep "$${MODIS_CONVERTER_INTERVAL_SECONDS:-300}"
+        done
+
+  modis-converter-tera-service:
+    build:
+      context: .
+      dockerfile: Dockerfile.modis-converter
+    profiles: ["service"]
+    restart: unless-stopped
+    environment:
+      MODIS_CONVERTER_INTERVAL_SECONDS: ${MODIS_CONVERTER_INTERVAL_SECONDS:-300}
+      MODIS_CONVERTER_DEBUG: ${MODIS_CONVERTER_DEBUG:-false}
+    volumes:
+      - ./data/output/modis-converted:/app/data/output/modis-converted
+      - /mnt/geomimo-data/DataProses/Terra:/app/data/input/tera:ro
+      - /mnt/geomimo-data/DataProses/BUFFER/CloudData/Produk/modis:/app/data/input/modis-buffer:ro
+    entrypoint: ["sh", "-lc"]
+    command:
+      - |
+        while true; do
+          if [ "$${MODIS_CONVERTER_DEBUG:-false}" = "true" ]; then debug_flag="--debug"; else debug_flag=""; fi
+          echo "modis-converter started satellite=tera source=original input=/app/data/input/tera output=/app/data/output/modis-converted/tera/original"
+          python -u /app/tools/modis_converter/convert_modis_hdf.py \
+            --input-dir /app/data/input/tera \
+            --output-dir /app/data/output/modis-converted/tera/original \
+            --satellite tera \
+            --skip-existing \
+            $${debug_flag}
+          echo "modis-converter started satellite=tera source=buffer input=/app/data/input/modis-buffer/raw output=/app/data/output/modis-converted/tera/buffer"
+          python -u /app/tools/modis_converter/convert_modis_hdf.py \
+            --input-dir /app/data/input/modis-buffer/raw \
+            --output-dir /app/data/output/modis-converted/tera/buffer \
+            --satellite tera \
+            --skip-existing \
+            $${debug_flag}
           sleep "$${MODIS_CONVERTER_INTERVAL_SECONDS:-300}"
         done
 

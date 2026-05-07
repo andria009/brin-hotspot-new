@@ -26,7 +26,7 @@ def main() -> None:
     parser.add_argument("--output-dir", required=True, type=Path)
     parser.add_argument(
         "--satellite",
-        choices=("aqua", "terra", "all"),
+        choices=("aqua", "tera", "all"),
         default="all",
         help="Satellite input family to convert.",
     )
@@ -35,13 +35,24 @@ def main() -> None:
         action="store_true",
         help="Skip outputs that are newer than or as new as their source HDF file.",
     )
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        help="Trace discovered and processed source files.",
+    )
     args = parser.parse_args()
 
+    print(
+        f"started input_dir={args.input_dir} output_dir={args.output_dir} "
+        f"satellite={args.satellite} skip_existing={args.skip_existing}",
+        flush=True,
+    )
     results = convert_tree(
         input_dir=args.input_dir,
         output_dir=args.output_dir,
         satellite=args.satellite,
         skip_existing=args.skip_existing,
+        debug=args.debug,
     )
     for result in results:
         if result.status == "failed":
@@ -49,11 +60,20 @@ def main() -> None:
                 f"failed source={result.source} output={result.output} "
                 f"rows={result.row_count} error={result.message}",
                 file=sys.stderr,
+                flush=True,
             )
         elif result.status == "skipped":
-            print(f"skipped source={result.source} output={result.output} rows=0")
+            print(f"skipped source={result.source} output={result.output} rows=0", flush=True)
         else:
-            print(f"ok source={result.source} output={result.output} rows={result.row_count}")
+            print(
+                f"ok source={result.source} output={result.output} rows={result.row_count}",
+                flush=True,
+            )
+    print(
+        f"completed input_dir={args.input_dir} output_dir={args.output_dir} "
+        f"satellite={args.satellite} files={len(results)}",
+        flush=True,
+    )
 
 
 def convert_tree(
@@ -62,21 +82,19 @@ def convert_tree(
     output_dir: Path,
     satellite: str = "all",
     skip_existing: bool = False,
+    debug: bool = False,
 ) -> list[ConversionResult]:
-    prefixes = {
-        "aqua": ("a1",),
-        "terra": ("t1",),
-        "all": ("a1", "t1"),
-    }[satellite]
-    sources = sorted(
-        path
-        for prefix in prefixes
-        for path in input_dir.rglob(f"{prefix}*.mod14.hdf")
-        if path.is_file()
-    )
+    sources = discover_sources(input_dir, satellite=satellite)
+    if debug:
+        print(
+            f"discovered input_dir={input_dir} satellite={satellite} files={len(sources)}",
+            flush=True,
+        )
     results: list[ConversionResult] = []
     for path in sources:
         try:
+            if debug:
+                print(f"processing source={path}", flush=True)
             results.append(
                 convert_file(
                     path,
@@ -97,6 +115,28 @@ def convert_tree(
                 )
             )
     return results
+
+
+def discover_sources(input_dir: Path, *, satellite: str) -> list[Path]:
+    """Find MODIS HDF files and production `.data` wrappers for a satellite."""
+
+    satellite_markers = {
+        "aqua": ("a1", "aqua_or"),
+        "tera": ("t1", "tera_or"),
+        "all": ("a1", "aqua_or", "t1", "tera_or"),
+    }[satellite]
+    sources: list[Path] = []
+    for path in input_dir.rglob("*"):
+        if not path.is_file():
+            continue
+        name = path.name.lower()
+        is_mod14_hdf = name.endswith(".mod14.hdf") and name.startswith(satellite_markers)
+        is_production_data = name.endswith(".data") and any(
+            marker in name for marker in satellite_markers if marker.endswith("_or")
+        )
+        if is_mod14_hdf or is_production_data:
+            sources.append(path)
+    return sorted(sources)
 
 
 def convert_file(
@@ -194,6 +234,9 @@ def converted_output_path(path: Path, *, input_dir: Path, output_dir: Path) -> P
 
 
 def parse_observed_at(path: Path) -> datetime:
+    if path.name.lower().endswith(".data"):
+        timestamp = path.name.split(".", 1)[0]
+        return datetime.strptime(timestamp[:12], "%Y%m%d%H%M")
     parts = scene_id_from_path(path).split(".")
     if len(parts) < 3:
         raise ValueError(f"Cannot derive MODIS observation time from filename: {path}")
@@ -202,8 +245,13 @@ def parse_observed_at(path: Path) -> datetime:
 
 def scene_id_from_path(path: Path) -> str:
     name = path.name
+    lowered = name.lower()
+    if lowered.endswith(".data"):
+        observed_at = parse_observed_at(path)
+        prefix = "t1" if "tera_or" in lowered else "a1"
+        return f"{prefix}.{observed_at:%y%j}.{observed_at:%H%M}.mod14"
     suffix = ".mod14.hdf"
-    if not name.lower().endswith(suffix):
+    if not lowered.endswith(suffix):
         raise ValueError(f"Unsupported MODIS filename: {path}")
     return name[: -len(suffix)] + ".mod14"
 

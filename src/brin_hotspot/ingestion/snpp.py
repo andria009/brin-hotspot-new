@@ -9,6 +9,7 @@ from brin_hotspot.satellites.snpp import SNPP_SETTINGS, find_snpp_files, parse_s
 def ingest_snpp(
     settings: Settings,
     input_dir: Path | None = None,
+    input_dirs: tuple[Path, ...] | None = None,
     *,
     persist: bool = False,
     enrich: bool = False,
@@ -19,6 +20,7 @@ def ingest_snpp(
         find_files=find_snpp_files,
         parse_file=parse_snpp_file,
         input_dir=input_dir,
+        input_dirs=input_dirs,
         persist=persist,
         enrich=enrich,
     )

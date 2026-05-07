@@ -19,6 +19,7 @@ CREATE TABLE IF NOT EXISTS source_files (
     id bigserial PRIMARY KEY,
     satellite text NOT NULL,
     path text NOT NULL,
+    source_key text,
     scene_id text,
     observed_at timestamp without time zone,
     status text NOT NULL DEFAULT 'pending',
@@ -27,6 +28,10 @@ CREATE TABLE IF NOT EXISTS source_files (
     last_error text,
     UNIQUE (satellite, path)
 );
+
+CREATE INDEX IF NOT EXISTS source_files_satellite_source_key_idx
+    ON source_files (satellite, source_key)
+    WHERE source_key IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS prov_ar (
     gid serial PRIMARY KEY,

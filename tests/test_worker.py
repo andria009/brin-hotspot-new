@@ -10,9 +10,9 @@ from brin_hotspot.worker import run_ingestion_cycle, run_worker_loop
 def test_run_ingestion_cycle_dispatches_selected_satellites(tmp_path, monkeypatch):
     calls = []
 
-    def fake_ingest(settings, input_dir, *, persist=False, enrich=False):
-        calls.append((settings, input_dir, persist, enrich))
-        return IngestionSummary(satellite=input_dir.name, parsed_count=1)
+    def fake_ingest(settings, *, input_dirs=None, persist=False, enrich=False):
+        calls.append((settings, input_dirs, persist, enrich))
+        return IngestionSummary(satellite=input_dirs[0].name, parsed_count=1)
 
     monkeypatch.setattr("brin_hotspot.worker._ingest_function", lambda satellite: fake_ingest)
     settings = Settings(
@@ -32,17 +32,17 @@ def test_run_ingestion_cycle_dispatches_selected_satellites(tmp_path, monkeypatc
 
     assert [summary.satellite for summary in summaries] == ["snpp", "landsat8"]
     assert calls == [
-        (settings, Path(tmp_path / "input/snpp"), True, True),
-        (settings, Path(tmp_path / "input/landsat8"), True, True),
+        (settings, (Path(tmp_path / "input/snpp"),), True, True),
+        (settings, (Path(tmp_path / "input/landsat8"),), True, True),
     ]
 
 
 def test_run_ingestion_cycle_uses_satellite_input_overrides(tmp_path, monkeypatch):
     calls = []
 
-    def fake_ingest(settings, input_dir, *, persist=False, enrich=False):
-        calls.append(input_dir)
-        return IngestionSummary(satellite=input_dir.name, parsed_count=1)
+    def fake_ingest(settings, *, input_dirs=None, persist=False, enrich=False):
+        calls.append(input_dirs)
+        return IngestionSummary(satellite=input_dirs[0].name, parsed_count=1)
 
     monkeypatch.setattr("brin_hotspot.worker._ingest_function", lambda satellite: fake_ingest)
     settings = Settings(
@@ -56,14 +56,14 @@ def test_run_ingestion_cycle_uses_satellite_input_overrides(tmp_path, monkeypatc
     run_ingestion_cycle(
         settings,
         satellites=("snpp", "aqua"),
-        input_dirs={"aqua": tmp_path / "converted" / "aqua"},
+        input_dirs={"aqua": (tmp_path / "converted" / "aqua", tmp_path / "buffer" / "aqua")},
         persist=True,
         enrich=True,
     )
 
     assert calls == [
-        Path(tmp_path / "input/snpp"),
-        Path(tmp_path / "converted/aqua"),
+        (Path(tmp_path / "input/snpp"),),
+        (Path(tmp_path / "converted/aqua"), Path(tmp_path / "buffer/aqua")),
     ]
 
 
@@ -129,11 +129,11 @@ def test_run_worker_loop_returns_completed_cycles_on_interrupt(tmp_path, monkeyp
 def test_run_ingestion_cycle_can_continue_after_satellite_error(tmp_path, monkeypatch):
     calls = []
 
-    def fake_ingest(settings, input_dir, *, persist=False, enrich=False):
-        calls.append(input_dir.name)
-        if input_dir.name == "snpp":
+    def fake_ingest(settings, *, input_dirs=None, persist=False, enrich=False):
+        calls.append(input_dirs[0].name)
+        if input_dirs[0].name == "snpp":
             raise RuntimeError("boom")
-        return IngestionSummary(satellite=input_dir.name, parsed_count=1)
+        return IngestionSummary(satellite=input_dirs[0].name, parsed_count=1)
 
     monkeypatch.setattr("brin_hotspot.worker._ingest_function", lambda satellite: fake_ingest)
     settings = Settings(

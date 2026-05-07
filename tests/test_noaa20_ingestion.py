@@ -42,7 +42,7 @@ def test_ingest_noaa20_can_persist_via_repository(tmp_path, monkeypatch):
         def __init__(self, database):
             calls["database"] = database
 
-        def source_file_completed(self, satellite, path):
+        def source_file_completed(self, satellite, path, *, source_key=None):
             return False
 
         def reset_running_source_files(self, *, satellite, message):
@@ -55,10 +55,10 @@ def test_ingest_noaa20_can_persist_via_repository(tmp_path, monkeypatch):
         def finish_run(self, run_id, status, message=None):
             calls["finish_run"] = (run_id, status, message)
 
-        def mark_source_file_running(self, satellite, path):
+        def mark_source_file_running(self, satellite, path, *, source_key=None):
             calls.setdefault("running_sources", []).append((satellite, path))
 
-        def mark_source_file_failed(self, satellite, path, message):
+        def mark_source_file_failed(self, satellite, path, message, *, source_key=None):
             calls.setdefault("failed_sources", []).append((satellite, path, message))
 
         def persist_ingestion(self, **kwargs):

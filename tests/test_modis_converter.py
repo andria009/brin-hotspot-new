@@ -19,6 +19,27 @@ def test_modis_converter_derives_scene_and_observation_time():
     assert converter.parse_observed_at(path).isoformat() == "2026-04-25T05:30:00"
 
 
+def test_modis_converter_derives_tera_scene_from_production_data_wrapper():
+    path = Path("raw/20240709145617.TERA_OR.data")
+
+    assert converter.scene_id_from_path(path) == "t1.24191.1456.mod14"
+    assert converter.parse_observed_at(path).isoformat() == "2024-07-09T14:56:00"
+
+
+def test_modis_converter_discovers_production_data_wrappers(tmp_path):
+    input_dir = tmp_path / "input"
+    tera = input_dir / "20240709145617.TERA_OR.data"
+    aqua = input_dir / "20240709150334.AQUA_OR.data"
+    ignored = input_dir / "20240709150334.NOAA_OR.data"
+    for path in (tera, aqua, ignored):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("hdf", encoding="utf-8")
+
+    assert converter.discover_sources(input_dir, satellite="tera") == [tera]
+    assert converter.discover_sources(input_dir, satellite="aqua") == [aqua]
+    assert converter.discover_sources(input_dir, satellite="all") == [tera, aqua]
+
+
 def test_modis_converter_preserves_relative_output_tree():
     input_dir = Path("/input")
     output_dir = Path("/output")
@@ -26,6 +47,16 @@ def test_modis_converter_preserves_relative_output_tree():
 
     assert converter.converted_output_path(path, input_dir=input_dir, output_dir=output_dir) == (
         output_dir / "aqua" / "2026" / "115" / "a1.26115.0530.mod14.hotspots.csv"
+    )
+
+
+def test_modis_converter_uses_mod14_output_name_for_data_wrapper():
+    input_dir = Path("/input")
+    output_dir = Path("/output")
+    path = input_dir / "raw" / "20240709145617.TERA_OR.data"
+
+    assert converter.converted_output_path(path, input_dir=input_dir, output_dir=output_dir) == (
+        output_dir / "raw" / "t1.24191.1456.mod14.hotspots.csv"
     )
 
 

@@ -11,7 +11,7 @@ from brin_hotspot.domain import IngestionSummary
 
 logger = logging.getLogger(__name__)
 
-IngestFunction = Callable[[Settings, Path | None], IngestionSummary]
+IngestFunction = Callable[..., IngestionSummary]
 
 
 @dataclass(frozen=True)
@@ -23,8 +23,8 @@ class WorkerRunSummary:
 def run_ingestion_cycle(
     settings: Settings,
     *,
-    satellites: tuple[str, ...] = ("snpp", "noaa20", "aqua", "terra", "landsat8"),
-    input_dirs: Mapping[str, Path] | None = None,
+    satellites: tuple[str, ...] = ("snpp", "noaa20", "aqua", "tera", "landsat8"),
+    input_dirs: Mapping[str, tuple[Path, ...]] | None = None,
     persist: bool = False,
     enrich: bool = False,
     continue_on_error: bool = False,
@@ -36,22 +36,33 @@ def run_ingestion_cycle(
         ingest = _ingest_function(satellite)
         # Input overrides let production use converted MODIS CSV directories
         # while keeping the default satellite subdirectory convention.
-        input_dir = (input_dirs or {}).get(satellite, settings.paths.input_dir / satellite)
+        satellite_input_dirs = (input_dirs or {}).get(
+            satellite,
+            (settings.paths.input_dir / satellite,),
+        )
         logger.info(
             "worker_satellite_started",
             extra={
                 "satellite": satellite,
-                "input_dir": str(input_dir),
+                "input_dirs": [str(input_dir) for input_dir in satellite_input_dirs],
                 "persist": persist,
                 "enrich": enrich,
             },
         )
         try:
-            summary = ingest(settings, input_dir, persist=persist, enrich=enrich)
+            summary = ingest(
+                settings,
+                input_dirs=satellite_input_dirs,
+                persist=persist,
+                enrich=enrich,
+            )
         except Exception:
             logger.exception(
                 "worker_satellite_failed",
-                extra={"satellite": satellite, "input_dir": str(input_dir)},
+                extra={
+                    "satellite": satellite,
+                    "input_dirs": [str(input_dir) for input_dir in satellite_input_dirs],
+                },
             )
             if continue_on_error:
                 continue
@@ -74,7 +85,7 @@ def run_worker_loop(
     settings: Settings,
     *,
     satellites: tuple[str, ...],
-    input_dirs: Mapping[str, Path] | None = None,
+    input_dirs: Mapping[str, tuple[Path, ...]] | None = None,
     persist: bool,
     enrich: bool,
     interval_seconds: int,
@@ -132,10 +143,10 @@ def _ingest_function(satellite: str):
         from brin_hotspot.ingestion.modis import ingest_aqua
 
         return ingest_aqua
-    if satellite == "terra":
-        from brin_hotspot.ingestion.modis import ingest_terra
+    if satellite == "tera":
+        from brin_hotspot.ingestion.modis import ingest_tera
 
-        return ingest_terra
+        return ingest_tera
     if satellite == "landsat8":
         from brin_hotspot.ingestion.landsat8 import ingest_landsat8
 

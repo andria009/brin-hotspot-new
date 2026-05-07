@@ -1,10 +1,20 @@
-# BRIN Hotspot Modernization
+# BRIN Hotspot
+
+<p align="center">
+  <img src="images/hotspot-logo.png" alt="BRIN Hotspot Monitoring System logo" width="220">
+</p>
+
+<p align="center">
+  <a href="LICENSE">
+    <img src="https://img.shields.io/badge/license-BSD%203--Clause-blue.svg" alt="License: BSD 3-Clause">
+  </a>
+</p>
 
 Modernized hotspot processing for the BRIN/LAPAN Indonesia fire detection pipeline.
 
 ## Description
 
-BRIN Hotspot Modernization is a containerized processing and dissemination system for Indonesia fire hotspot data. It ingests satellite hotspot products from SNPP, NOAA20, AQUA, TERRA, and Landsat 8, normalizes them into a common model, enriches detections with administrative reference data, clusters related detections, and persists the results into PostgreSQL/PostGIS.
+BRIN Hotspot Modernization is a containerized processing and dissemination system for Indonesia fire hotspot data. It ingests satellite hotspot products from SNPP, NOAA20, AQUA, TERA, and Landsat 8, normalizes them into a common model, enriches detections with administrative reference data, clusters related detections, and persists the results into PostgreSQL/PostGIS.
 
 The project also provides two read-only dissemination paths: a FastAPI service for machine access and a MapLibre web dashboard for operational visualization. The frontend supports street and satellite basemaps, hotspot filtering, satellite toggles, regional highlighting, status monitoring, and GeoJSON export.
 
@@ -52,10 +62,10 @@ Developer and operator documentation is available in `docs/`:
 | `hotspot ingest snpp` | `AFIMG_npp*.txt` | VIIRS text hotspot files. |
 | `hotspot ingest noaa20` | `AFIMG_j01*.txt` | VIIRS text hotspot files. |
 | `hotspot ingest aqua` | `a1*.mod14.hdf`, `a1*.mod14.hotspots.csv` | MODIS fire-pixel files. Converted CSV is preferred when both exist. |
-| `hotspot ingest terra` | `t1*.mod14.hdf`, `t1*.mod14.hotspots.csv` | MODIS fire-pixel files. Converted CSV is preferred when both exist. |
+| `hotspot ingest tera` | `t1*.mod14.hdf`, `t1*.mod14.hotspots.csv` | MODIS fire-pixel files. Converted CSV is preferred when both exist. |
 | `hotspot ingest landsat8` | `LC08*firepixels.txt`, `LO08*firepixels.txt` | Grouped by acquisition date and WRS path. |
 
-MODIS HDF parsing requires `pyhdf` in runtime environments that process real AQUA/TERRA HDF4 files. The parser imports `pyhdf` lazily so the rest of the CLI and tests remain usable without HDF4 support installed.
+MODIS HDF parsing requires `pyhdf` in runtime environments that process real AQUA/TERA HDF4 files. The parser imports `pyhdf` lazily so the rest of the CLI and tests remain usable without HDF4 support installed.
 
 The Docker image installs GDAL and compatible HDF4 native libraries. To try installing the optional Python `pyhdf` package during image build, use:
 
@@ -92,7 +102,7 @@ The shared ingestion flow is:
 8. Optionally persist each source item independently into PostGIS.
 9. Mark each source file `completed` only after persistence succeeds, including valid sources whose detections were fully filtered by enrichment rules.
 
-This source-level checkpointing is important for operational runs. If a long ingestion is interrupted, files already marked `completed` are skipped on the next run, stale `running` files are reset to `pending`, and remaining or failed files can be retried without replaying the whole tree.
+This source-level checkpointing is important for operational runs. If a long ingestion is interrupted, files already marked `completed` are skipped on the next run, stale `running` files are reset to `pending`, and remaining or failed files can be retried without replaying the whole tree. Source files are tracked by a stable `source_key` as well as by path, so the same scene or production file can be skipped even when it is found under a different input root.
 
 ## Hotspot Detection Process
 
@@ -101,7 +111,7 @@ SNPP and NOAA20 use the same VIIRS active-fire text flow:
 1. The worker scans each real input tree recursively.
    - SNPP reads `AFIMG_npp*.txt`.
    - NOAA20 reads `AFIMG_j01*.txt`.
-2. Each text file is treated as one source item. With database persistence enabled, the file is skipped when `source_files.status = completed`.
+2. Each text file is treated as one source item. With database persistence enabled, the file is skipped when a matching `source_key` or path is already `completed`.
 3. Observation time is derived from the production filename, for example `d20250101_t0407536`.
 4. Each valid hotspot row is normalized into a common pixel record containing latitude, longitude, confidence, observed time, satellite, scene id, source station, and source file.
 5. With `--enrich`, each pixel is matched against the imported PostGIS province, kabupaten, and kecamatan polygons. Pixels outside the imported boundary set remain valid hotspot pixels but keep null administrative fields.
@@ -109,19 +119,22 @@ SNPP and NOAA20 use the same VIIRS active-fire text flow:
 7. Remaining pixels are clustered using satellite-specific spatial resolution settings.
 8. Cluster and pixel CSV files are written, then clusters and pixels are persisted to PostGIS. The source file is marked `completed` only after persistence succeeds, even when all detections were filtered as persistent anomalies or duplicates.
 
-AQUA uses a two-stage MODIS flow because production AQUA inputs are HDF4:
+AQUA and TERA use a two-stage MODIS flow because production MODIS inputs are HDF4:
 
-1. `modis-converter` or `modis-converter-service` scans raw AQUA HDF4 files recursively under `/app/data/input/aqua`.
-2. It reads MOD14 fire-pixel datasets such as `FP_latitude`, `FP_longitude`, and `FP_confidence`.
-3. Each HDF file is converted to a neutral `*.mod14.hotspots.csv` file under `/app/data/output/modis-converted/aqua`, preserving the relative input tree.
-4. Empty MODIS granules become header-only CSV files. Failed granules are reported in converter logs and do not stop the whole conversion cycle.
-5. The converter uses `--skip-existing` in service mode, so already converted files are not rewritten unless the source HDF is newer. Output replacement is atomic so the worker does not ingest half-written CSV files.
-6. `worker-service` ingests AQUA from `/app/data/output/modis-converted/aqua`, not from the raw HDF directory.
-7. AQUA converted CSV rows are normalized into the same common hotspot pixel model as VIIRS, then enrichment, filtering, clustering, CSV export, persistence, and source-file checkpointing use the shared ingestion engine.
+1. `modis-converter` or the satellite-specific converter services scan raw MODIS HDF4 files recursively under mounted input roots.
+2. The converter accepts standard MODIS names such as `a1*.mod14.hdf` and `t1*.mod14.hdf`, plus production wrapper files such as `*.AQUA_OR.data` and `*.TERA_OR.data`.
+3. It reads MOD14 fire-pixel datasets such as `FP_latitude`, `FP_longitude`, and `FP_confidence`.
+4. Each HDF or production wrapper file is converted to a neutral `*.mod14.hotspots.csv` file under `/app/data/output/modis-converted`, preserving the relative input tree.
+   - A production file such as `20240709145617.TERA_OR.data` is emitted as a worker-readable scene such as `t1.24191.1456.mod14.hotspots.csv`.
+5. Empty MODIS granules become header-only CSV files. Failed granules are reported in converter logs and do not stop the whole conversion cycle.
+6. The converter uses `--skip-existing` in service mode, so already converted files are not rewritten unless the source HDF is newer. Output replacement is atomic so the worker does not ingest half-written CSV files.
+7. `worker-aqua-service` and `worker-tera-service` ingest converted CSV directories, not the raw HDF directories.
+8. MODIS converted CSV rows are normalized into the same common hotspot pixel model as VIIRS, then enrichment, filtering, clustering, CSV export, persistence, and source-file checkpointing use the shared ingestion engine.
 
-Operationally, SNPP, NOAA20, and AQUA therefore converge into the same database model:
+Operationally, SNPP, NOAA20, AQUA, and TERA therefore converge into the same database model:
 
 - `source_files` tracks whether each input file is `pending`, `running`, `completed`, or `failed`.
+- `source_files.source_key` stores the stable production file or scene identity used to skip duplicates across different input roots.
 - `ingestion_runs` records each command or worker cycle run.
 - `hotspot_pixel` stores individual detections.
 - `hotspot_cluster` stores clustered hotspot groups.
@@ -196,6 +209,16 @@ Apply PostGIS admin-boundary enrichment plus persistent-anomaly and duplicate fi
 hotspot ingest snpp --input-dir data/input/snpp --database --enrich
 ```
 
+Repeat `--input-dir` to ingest more than one root in a single run. The search is recursive under each root:
+
+```bash
+hotspot ingest snpp \
+  --input-dir /mnt/geomimo-data/DataProses/Suomi-NPP \
+  --input-dir /mnt/geomimo-data/DataProses/BUFFER/CloudData/Produk/SNPP \
+  --database \
+  --enrich
+```
+
 Run NOAA20 ingestion:
 
 ```bash
@@ -203,11 +226,11 @@ hotspot ingest noaa20 --input-dir data/input/noaa20
 hotspot ingest noaa20 --input-dir data/input/noaa20 --database --enrich
 ```
 
-Run AQUA and TERRA MODIS ingestion:
+Run AQUA and TERA MODIS ingestion:
 
 ```bash
 hotspot ingest aqua --input-dir data/input/aqua
-hotspot ingest terra --input-dir data/input/terra
+hotspot ingest tera --input-dir data/input/tera
 ```
 
 If using raw MODIS HDF4 files, convert them first:
@@ -216,7 +239,7 @@ If using raw MODIS HDF4 files, convert them first:
 docker compose run --rm modis-converter --input-dir /app/data/input --output-dir /app/data/input
 ```
 
-The converter writes `*.mod14.hotspots.csv` files next to the matching input tree. The main AQUA/TERRA ingestion commands prefer converted CSV files over matching raw HDF files, which avoids duplicate processing when both are present.
+The converter writes `*.mod14.hotspots.csv` files into the chosen output tree. The main AQUA/TERA ingestion commands prefer converted CSV files over matching raw HDF files, which avoids duplicate processing when both are present.
 
 MODIS granules with no fire pixels are converted to header-only CSV files. Files that cannot be read are reported to stderr and do not stop the whole conversion run.
 
@@ -278,32 +301,16 @@ Operational cleanup commands:
 docker compose run --rm worker hotspot admin reset-running --satellite snpp
 docker compose run --rm worker hotspot admin reset-running --satellite noaa20
 docker compose run --rm worker hotspot admin reset-running --satellite aqua
+docker compose run --rm worker hotspot admin reset-running --satellite tera
 
 # Replay completed files after importing reference data or changing enrichment logic.
 docker compose run --rm worker hotspot admin replay-satellite --satellite snpp --status completed
 docker compose run --rm worker hotspot admin replay-satellite --satellite noaa20 --status completed
 docker compose run --rm worker hotspot admin replay-satellite --satellite aqua --status completed
+docker compose run --rm worker hotspot admin replay-satellite --satellite tera --status completed
 
 # Replay failed files after fixing parser/input issues.
 docker compose run --rm worker hotspot admin replay-satellite --satellite snpp --status failed
-```
-
-Direct SQL checks are useful for cleanup decisions:
-
-```bash
-docker compose exec db psql -U hotspot -d hotspot -c "
-select satellite, status, count(*)
-from source_files
-group by satellite, status
-order by satellite, status;
-"
-
-docker compose exec db psql -U hotspot -d hotspot -c "
-select satellite, status, count(*)
-from ingestion_runs
-group by satellite, status
-order by satellite, status;
-"
 ```
 
 ## Raster Metadata
@@ -320,7 +327,7 @@ Persist raster metadata into the raster PostGIS database:
 hotspot raster scan --input-dir data/input/rasters --database
 ```
 
-Supported raster filename families include `SNPP_*_FI.tif`, `NOAA20_*_FI.tif`, `AQUA_*_FI.tif`, `TERRA_*_FI.tif`, and `L8_*_FI.tif`.
+Supported raster filename families include `SNPP_*_FI.tif`, `NOAA20_*_FI.tif`, `AQUA_*_FI.tif`, `TERA_*_FI.tif`, and `L8_*_FI.tif`.
 
 Generate XYZ web tiles for discovered rasters:
 
@@ -358,35 +365,71 @@ hotspot worker loop \
   --satellite snpp \
   --satellite noaa20 \
   --satellite aqua \
-  --input aqua=/app/data/output/modis-converted/aqua \
+  --satellite tera \
+  --input snpp=/app/data/input/snpp \
+  --input snpp=/app/data/input/snpp-buffer \
+  --input noaa20=/app/data/input/noaa20 \
+  --input noaa20=/app/data/input/noaa20-buffer \
+  --input aqua=/app/data/output/modis-converted/aqua/original \
+  --input aqua=/app/data/output/modis-converted/aqua/buffer \
+  --input tera=/app/data/output/modis-converted/tera/original \
+  --input tera=/app/data/output/modis-converted/tera/buffer \
   --interval-seconds 300 \
   --max-cycles 0 \
   --database \
   --enrich
 ```
 
-The worker uses the same source-file idempotency tables as direct ingestion commands. Completed database-backed files are skipped unless they are explicitly replayed, so the loop can safely revisit the same input folders and process newly-arrived files. `--input satellite=/path` overrides one satellite input directory, which is useful for AQUA/TERRA after HDF4 files have been converted to CSV by the MODIS converter sidecar.
+The worker uses the same source-file idempotency tables as direct ingestion commands. Completed database-backed files are skipped unless they are explicitly replayed, so the loop can safely revisit the same input folders and process newly-arrived files. Repeat `--input satellite=/path` to add multiple roots for the same satellite, which is useful for original and BUFFER input trees.
 
 Run the Docker Compose service profile:
 
 ```bash
-docker compose --profile service up -d modis-converter-service worker-service
-docker compose logs -f worker-service
-docker compose --profile service stop worker-service modis-converter-service
+docker compose --profile service up -d \
+  modis-converter-aqua-service \
+  modis-converter-tera-service \
+  worker-snpp-service \
+  worker-noaa20-service \
+  worker-aqua-service \
+  worker-tera-service
+docker compose logs -f worker-snpp-service
+docker compose --profile service stop \
+  worker-snpp-service \
+  worker-noaa20-service \
+  worker-aqua-service \
+  worker-tera-service \
+  modis-converter-aqua-service \
+  modis-converter-tera-service
 ```
 
-The default service pair processes SNPP, NOAA20, and AQUA with enrichment enabled. `modis-converter-service` refreshes AQUA HDF4 files into `/app/data/output/modis-converted/aqua`, and `worker-service` ingests AQUA from that converted CSV directory. Add Terra later by adding a Terra converter service and editing the worker command after Terra source data is ready.
+The default service profile processes SNPP, NOAA20, AQUA, and TERA with enrichment enabled. `modis-converter-aqua-service` and `modis-converter-tera-service` refresh HDF4 files from original and BUFFER MODIS roots into `/app/data/output/modis-converted`, and the satellite-specific worker services ingest independently from their own input roots.
+
+Enable file-level tracing when diagnosing discovery, skip, conversion, or ingestion behavior:
+
+```bash
+HOTSPOT_TRACE_FILES=true MODIS_CONVERTER_DEBUG=true \
+  docker compose --profile service up -d --force-recreate \
+  worker-snpp-service \
+  worker-noaa20-service \
+  worker-aqua-service \
+  worker-tera-service \
+  modis-converter-aqua-service \
+  modis-converter-tera-service
+```
 
 For production-style runs, mount each real satellite source directory directly:
 
 ```yaml
 - /mnt/geomimo-data/DataProses/Suomi-NPP:/app/data/input/snpp:ro
+- /mnt/geomimo-data/DataProses/BUFFER/CloudData/Produk/SNPP:/app/data/input/snpp-buffer:ro
 - /mnt/geomimo-data/DataProses/NOAA-20:/app/data/input/noaa20:ro
+- /mnt/geomimo-data/DataProses/BUFFER/CloudData/Produk/NOAA20:/app/data/input/noaa20-buffer:ro
 - /mnt/geomimo-data/DataProses/AQUA:/app/data/input/aqua:ro
-- /mnt/geomimo-data/DataProses/Terra:/app/data/input/terra:ro
+- /mnt/geomimo-data/DataProses/Terra:/app/data/input/tera:ro
+- /mnt/geomimo-data/DataProses/BUFFER/CloudData/Produk/modis:/app/data/input/modis-buffer:ro
 ```
 
-Do not bind `./data/input:/app/data/input` at the same time for production ingestion. The local parent bind can create placeholder `snpp`, `noaa20`, `aqua`, and `terra` directories under `data/input`, which is confusing and can hide whether the container is reading the real `/mnt/geomimo-data` source.
+Do not bind `./data/input:/app/data/input` at the same time for production ingestion. The local parent bind can create placeholder `snpp`, `noaa20`, `aqua`, and `tera` directories under `data/input`, which is confusing and can hide whether the container is reading the real `/mnt/geomimo-data` source.
 
 Server workflow after code changes:
 
@@ -395,15 +438,25 @@ docker compose build worker
 docker compose build modis-converter
 docker compose run --rm worker hotspot health --database
 docker compose run --rm worker hotspot admin reset-running
-docker compose --profile service up -d modis-converter-service worker-service
+docker compose --profile service up -d \
+  modis-converter-aqua-service \
+  modis-converter-tera-service \
+  worker-snpp-service \
+  worker-noaa20-service \
+  worker-aqua-service \
+  worker-tera-service
 ```
 
 Monitor the service:
 
 ```bash
 docker compose ps
-docker compose logs -f worker-service
-docker compose logs -f modis-converter-service
+docker compose logs -f worker-snpp-service
+docker compose logs -f worker-noaa20-service
+docker compose logs -f worker-aqua-service
+docker compose logs -f worker-tera-service
+docker compose logs -f modis-converter-aqua-service
+docker compose logs -f modis-converter-tera-service
 docker compose exec db psql -U hotspot -d hotspot -c "
 select satellite, status, count(*)
 from source_files
@@ -415,14 +468,26 @@ order by satellite, status;
 Stop or restart the service:
 
 ```bash
-docker compose --profile service stop worker-service modis-converter-service
-docker compose --profile service restart modis-converter-service worker-service
+docker compose --profile service stop \
+  worker-snpp-service \
+  worker-noaa20-service \
+  worker-aqua-service \
+  worker-tera-service \
+  modis-converter-aqua-service \
+  modis-converter-tera-service
+docker compose --profile service restart \
+  modis-converter-aqua-service \
+  modis-converter-tera-service \
+  worker-snpp-service \
+  worker-noaa20-service \
+  worker-aqua-service \
+  worker-tera-service
 ```
 
 For a short service smoke test, override the cycle count:
 
 ```bash
-HOTSPOT_WORKER_MAX_CYCLES=1 docker compose --profile service up worker-service
+HOTSPOT_WORKER_MAX_CYCLES=1 docker compose --profile service up worker-snpp-service
 ```
 
 To smoke-test one converter cycle manually:
@@ -508,6 +573,8 @@ The hotspot endpoint supports these read-only filters:
 
 Frontend access and features:
 
+![BRIN Hotspot Monitoring System dashboard screenshot](images/Screenshot.png)
+
 - local dashboard access at `http://localhost:8080`
 - Nginx-served production build with `/api/*` proxied to the API service
 - BRIN Hotspot Monitoring System logo and operational map-first layout
@@ -592,14 +659,20 @@ Check MODIS conversion output:
 ```bash
 find data/output/modis-converted/aqua -type f -name '*.mod14.hotspots.csv' | wc -l
 find data/output/modis-converted/aqua -type f -name '*.mod14.hotspots.csv' | head
+find data/output/modis-converted/tera -type f -name '*.mod14.hotspots.csv' | wc -l
+find data/output/modis-converted/tera -type f -name '*.mod14.hotspots.csv' | head
 ```
 
-Check worker-service logs and running containers:
+Check worker service logs and running containers:
 
 ```bash
 docker compose ps
-docker compose logs --tail 200 worker-service
-docker compose logs --tail 200 modis-converter-service
+docker compose logs --tail 200 worker-snpp-service
+docker compose logs --tail 200 worker-noaa20-service
+docker compose logs --tail 200 worker-aqua-service
+docker compose logs --tail 200 worker-tera-service
+docker compose logs --tail 200 modis-converter-aqua-service
+docker compose logs --tail 200 modis-converter-tera-service
 ```
 
 ## Configuration
@@ -610,7 +683,11 @@ No credentials should be committed to this repository.
 
 ## License
 
-This project is licensed under the BSD 3-Clause License. See `LICENSE`.
+![License: BSD 3-Clause](https://img.shields.io/badge/license-BSD%203--Clause-blue.svg)
+
+This project is licensed under the [BSD 3-Clause License](LICENSE).
+
+Copyright (c) 2026, Andria Arisal and Andy Indradjad (BRIN).
 
 ## Verification Status
 

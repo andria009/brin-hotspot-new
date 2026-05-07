@@ -6,7 +6,7 @@ This document describes the backend services, command line tools, database model
 
 The backend is responsible for turning satellite hotspot source files into queryable operational data. Its main responsibilities are:
 
-- Discover source files for SNPP, NOAA20, AQUA, TERRA, and Landsat 8.
+- Discover source files for SNPP, NOAA20, AQUA, TERA, and Landsat 8.
 - Parse satellite-specific hotspot products into a shared detection model.
 - Enrich detections with province, kota/kabupaten, and kecamatan reference polygons.
 - Filter persistent anomalies and duplicate detections when enrichment/database mode is enabled.
@@ -42,10 +42,14 @@ The backend is deployed through Docker Compose.
 | --- | --- | --- |
 | `db` | `postgis/postgis:16-3.4` | PostgreSQL/PostGIS databases for hotspot and raster data. |
 | `worker` | `Dockerfile` | One-shot command container, defaulting to `hotspot health`. |
-| `worker-service` | `Dockerfile` | Long-running ingestion loop for SNPP, NOAA20, and AQUA. |
+| `worker-snpp-service` | `Dockerfile` | Long-running SNPP ingestion loop. |
+| `worker-noaa20-service` | `Dockerfile` | Long-running NOAA20 ingestion loop. |
+| `worker-aqua-service` | `Dockerfile` | Long-running AQUA ingestion loop over converted MODIS CSV files. |
+| `worker-tera-service` | `Dockerfile` | Long-running TERA ingestion loop over converted MODIS CSV files. |
 | `api` | `Dockerfile` | FastAPI read-only data service. |
 | `modis-converter` | `Dockerfile.modis-converter` | One-shot MODIS HDF4 conversion. |
-| `modis-converter-service` | `Dockerfile.modis-converter` | Long-running AQUA converter loop. |
+| `modis-converter-aqua-service` | `Dockerfile.modis-converter` | Long-running AQUA converter loop. |
+| `modis-converter-tera-service` | `Dockerfile.modis-converter` | Long-running TERA converter loop. |
 
 Start the core dissemination stack:
 
@@ -56,13 +60,25 @@ docker compose up --build db api frontend
 Start ingestion services:
 
 ```bash
-docker compose --profile service up -d modis-converter-service worker-service
+docker compose --profile service up -d \
+  modis-converter-aqua-service \
+  modis-converter-tera-service \
+  worker-snpp-service \
+  worker-noaa20-service \
+  worker-aqua-service \
+  worker-tera-service
 ```
 
 Stop ingestion services:
 
 ```bash
-docker compose --profile service stop worker-service modis-converter-service
+docker compose --profile service stop \
+  worker-snpp-service \
+  worker-noaa20-service \
+  worker-aqua-service \
+  worker-tera-service \
+  modis-converter-aqua-service \
+  modis-converter-tera-service
 ```
 
 Stop all services without deleting database volumes:
@@ -109,7 +125,7 @@ The hotspot database stores operational state and geospatial hotspot products.
 | --- | --- |
 | `hotspot_pixel` | Individual hotspot detections with coordinates, confidence, satellite, source metadata, and administrative enrichment fields. |
 | `hotspot_cluster` | Clustered hotspot groups derived from filtered pixels. |
-| `source_files` | Source-file checkpoints with satellite, path, scene id, observed time, status, timestamps, and last error. |
+| `source_files` | Source-file checkpoints with satellite, path, stable source key, scene id, observed time, status, timestamps, and last error. |
 | `ingestion_runs` | Ingestion command or worker-cycle run history. |
 | `prov_ar` | Province reference polygons. |
 | `kab_kota_ar` | Kota/kabupaten reference polygons. |
@@ -147,6 +163,8 @@ Common statuses:
 | `running` | File is currently being processed. |
 | `completed` | File has completed successfully and will be skipped in later database-backed runs. |
 | `failed` | File failed and can be inspected or replayed. |
+
+Files are skipped by stable `source_key` when available, then by path as a fallback. This prevents duplicate ingestion when the same production file or scene appears under both an original source tree and a BUFFER source tree with different full paths.
 
 The ingestion flow marks each source item independently:
 
@@ -208,6 +226,16 @@ hotspot ingest noaa20 --input-dir data/input/noaa20 --database --enrich
 hotspot ingest aqua --input-dir data/output/modis-converted/aqua --database --enrich
 ```
 
+Repeat `--input-dir` to scan multiple recursive roots in one command:
+
+```bash
+hotspot ingest noaa20 \
+  --input-dir /mnt/geomimo-data/DataProses/NOAA-20 \
+  --input-dir /mnt/geomimo-data/DataProses/BUFFER/CloudData/Produk/NOAA20 \
+  --database \
+  --enrich
+```
+
 `--enrich` requires `--database` because enrichment, anomaly filtering, duplicate filtering, and source-file checkpointing depend on PostGIS.
 
 ## Satellite Inputs
@@ -217,7 +245,7 @@ hotspot ingest aqua --input-dir data/output/modis-converted/aqua --database --en
 | SNPP | `AFIMG_npp*.txt` | VIIRS text products. |
 | NOAA20 | `AFIMG_j01*.txt` | VIIRS text products. |
 | AQUA | `a1*.mod14.hdf`, `a1*.mod14.hotspots.csv` | MODIS HDF4 or converted CSV. Worker-service reads converted CSV. |
-| TERRA | `t1*.mod14.hdf`, `t1*.mod14.hotspots.csv` | MODIS HDF4 or converted CSV. |
+| TERA | `t1*.mod14.hdf`, `t1*.mod14.hotspots.csv` | MODIS HDF4 or converted CSV. |
 | Landsat 8 | `LC08*firepixels.txt`, `LO08*firepixels.txt` | Fire-pixel text files grouped by acquisition date and WRS path. |
 
 ## MODIS Converter
@@ -237,7 +265,7 @@ docker compose run --rm modis-converter \
 Service mode:
 
 ```bash
-docker compose --profile service up -d modis-converter-service
+docker compose --profile service up -d modis-converter-aqua-service
 ```
 
 The converter writes `*.mod14.hotspots.csv` files. Header-only CSV files are produced for valid MODIS granules with no fire pixels. Output replacement is atomic so the worker does not ingest half-written files.
@@ -338,7 +366,15 @@ hotspot worker loop \
   --satellite snpp \
   --satellite noaa20 \
   --satellite aqua \
-  --input aqua=/app/data/output/modis-converted/aqua \
+  --satellite tera \
+  --input snpp=/app/data/input/snpp \
+  --input snpp=/app/data/input/snpp-buffer \
+  --input noaa20=/app/data/input/noaa20 \
+  --input noaa20=/app/data/input/noaa20-buffer \
+  --input aqua=/app/data/output/modis-converted/aqua/original \
+  --input aqua=/app/data/output/modis-converted/aqua/buffer \
+  --input tera=/app/data/output/modis-converted/tera/original \
+  --input tera=/app/data/output/modis-converted/tera/buffer \
   --interval-seconds 300 \
   --max-cycles 0 \
   --database \

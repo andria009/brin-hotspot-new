@@ -81,7 +81,7 @@ export async function getTrend(filters: HotspotFilters): Promise<HotspotTrend> {
 }
 
 export async function getRuns(): Promise<IngestionRun[]> {
-  return getJson("/runs?limit=10", mockRuns);
+  return getJson("/runs?limit=200", mockRuns);
 }
 
 function hotspotParams(filters: HotspotFilters) {
@@ -97,7 +97,7 @@ function hotspotParams(filters: HotspotFilters) {
 }
 
 export async function getSources(): Promise<SourceFile[]> {
-  return getJson("/source-files?limit=10", mockSources);
+  return getJson("/source-files?limit=200", mockSources);
 }
 
 export async function getLocations(province = "", kabupaten = ""): Promise<LocationOptions> {

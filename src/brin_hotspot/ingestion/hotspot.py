@@ -23,6 +23,7 @@ def ingest_hotspot_sources(
     find_sources: Callable[[Path], list[SourceItem]],
     parse_source: Callable[[SourceItem], list[HotspotDetection]],
     input_dir: Path | None = None,
+    input_dirs: tuple[Path, ...] | None = None,
     persist: bool = False,
     enrich: bool = False,
 ) -> IngestionSummary:
@@ -34,10 +35,31 @@ def ingest_hotspot_sources(
     """
 
     run_id = uuid4()
-    source_dir = input_dir or settings.paths.input_dir / (
-        satellite_settings.input_subdir or satellite_settings.satellite
+    source_dirs = input_dirs or (
+        (input_dir,)
+        if input_dir is not None
+        else (
+            settings.paths.input_dir
+            / (satellite_settings.input_subdir or satellite_settings.satellite),
+        )
     )
-    sources = find_sources(source_dir)
+    sources = [
+        source
+        for source_dir in source_dirs
+        for source in find_sources(source_dir)
+    ]
+    if settings.trace_files:
+        for source in sources:
+            logger.info(
+                "hotspot_source_discovered",
+                extra={
+                    "run_id": str(run_id),
+                    "satellite": satellite_settings.satellite,
+                    "source": str(source.path),
+                    "source_key": source.source_key,
+                    "files": [str(path) for path in source.files],
+                },
+            )
     repository = HotspotRepository(settings.hotspot_database) if persist else None
     geo_repository = GeoRepository(settings.hotspot_database) if enrich else None
     logger.info(
@@ -45,7 +67,7 @@ def ingest_hotspot_sources(
         extra={
             "run_id": str(run_id),
             "satellite": satellite_settings.satellite,
-            "input_dir": str(source_dir),
+            "input_dirs": [str(source_dir) for source_dir in source_dirs],
             "source_count": len(sources),
         },
     )
@@ -80,7 +102,7 @@ def ingest_hotspot_sources(
         repository.start_run(
             run_id,
             satellite_settings.satellite,
-            source_path=str(source_dir),
+            source_path=",".join(str(source_dir) for source_dir in source_dirs),
         )
 
     try:
@@ -183,7 +205,11 @@ def _process_source(
     list[Path],
 ]:
     if repository and all(
-        repository.source_file_completed(satellite_settings.satellite, source_file)
+        repository.source_file_completed(
+            satellite_settings.satellite,
+            source_file,
+            source_key=source.source_key,
+        )
         for source_file in source.files
     ):
         # SourceItem may represent one file or a grouped scene. Skip only when
@@ -194,6 +220,8 @@ def _process_source(
                 "run_id": str(run_id),
                 "satellite": satellite_settings.satellite,
                 "source": str(source.path),
+                "source_key": source.source_key,
+                "files": [str(path) for path in source.files],
                 "reason": "already_completed",
             },
         )
@@ -203,7 +231,22 @@ def _process_source(
         for source_file in source.files:
             # Mark before parsing so failures are visible in source_files even
             # when parsing or enrichment fails midway.
-            repository.mark_source_file_running(satellite_settings.satellite, source_file)
+            repository.mark_source_file_running(
+                satellite_settings.satellite,
+                source_file,
+                source_key=source.source_key,
+            )
+            if settings.trace_files:
+                logger.info(
+                    "hotspot_source_file_running",
+                    extra={
+                        "run_id": str(run_id),
+                        "satellite": satellite_settings.satellite,
+                        "source": str(source.path),
+                        "source_file": str(source_file),
+                        "source_key": source.source_key,
+                    },
+                )
 
     try:
         parsed = parse_source(source)
@@ -214,6 +257,7 @@ def _process_source(
                     satellite_settings.satellite,
                     source_file,
                     str(exc),
+                    source_key=source.source_key,
                 )
         logger.exception(
             "hotspot_source_failed",
@@ -233,6 +277,7 @@ def _process_source(
             "run_id": str(run_id),
             "satellite": satellite_settings.satellite,
             "source": str(source.path),
+            "source_key": source.source_key,
             "source_file_count": len(source.files),
             "parsed_count": len(parsed),
         },
@@ -293,6 +338,7 @@ def _process_source(
                     run_id=run_id,
                     satellite=satellite_settings.satellite,
                     source_files=source.files,
+                    source_key=source.source_key,
                     clusters=source_clusters,
                     pixel_radius_meters=pixel_radius_meters,
                     source_metadata={
@@ -311,6 +357,7 @@ def _process_source(
                     satellite_settings.satellite,
                     source_file,
                     str(exc),
+                    source_key=source.source_key,
                 )
         raise
 

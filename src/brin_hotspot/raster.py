@@ -13,7 +13,7 @@ type PathLike = str | Path
 
 SATELLITE_NAMES = {
     "AQUA": "aqua",
-    "TERRA": "terra",
+    "TERA": "tera",
     "SNPP": "snpp",
     "NOAA20": "noaa20",
     "L8": "landsat8",

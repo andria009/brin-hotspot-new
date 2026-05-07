@@ -16,18 +16,28 @@ class HotspotRepository:
     def __init__(self, database: DatabaseSettings):
         self._database = database
 
-    def source_file_completed(self, satellite: str, path: Path) -> bool:
+    def source_file_completed(
+        self,
+        satellite: str,
+        path: Path,
+        *,
+        source_key: str | None = None,
+    ) -> bool:
         """Return True only for files that should be skipped by database ingestion."""
 
         with psycopg.connect(self._database.dsn, connect_timeout=5) as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
                     """
-                    SELECT status = 'completed'
+                    SELECT bool_or(status = 'completed')
                     FROM source_files
-                    WHERE satellite = %s AND path = %s;
+                    WHERE satellite = %s
+                      AND (
+                          (%s::text IS NOT NULL AND source_key = %s)
+                          OR (%s::text IS NULL AND path = %s)
+                      );
                     """,
-                    (satellite, str(path)),
+                    (satellite, source_key, source_key, source_key, str(path)),
                 )
                 row = cursor.fetchone()
                 return bool(row and row[0])
@@ -38,6 +48,7 @@ class HotspotRepository:
         run_id: UUID,
         satellite: str,
         source_files: tuple[Path, ...],
+        source_key: str | None = None,
         clusters: list[HotspotCluster],
         pixel_radius_meters: int,
         source_metadata: dict[Path, tuple[str, datetime]] | None = None,
@@ -79,6 +90,7 @@ class HotspotRepository:
                             cursor,
                             satellite,
                             source_file,
+                            source_key=source_key,
                             scene_id=scene_id,
                             observed_at=observed_at,
                         )
@@ -132,40 +144,72 @@ class HotspotRepository:
                     )
                     return cursor.rowcount
 
-    def mark_source_file_running(self, satellite: str, source_file: Path) -> None:
+    def mark_source_file_running(
+        self,
+        satellite: str,
+        source_file: Path,
+        *,
+        source_key: str | None = None,
+    ) -> None:
         """Create or update a checkpoint row before processing starts."""
 
         with psycopg.connect(self._database.dsn, connect_timeout=5) as connection:
             with connection.transaction():
                 with connection.cursor() as cursor:
+                    if source_key and self._update_source_file_by_key(
+                        cursor,
+                        satellite=satellite,
+                        source_key=source_key,
+                        path=source_file,
+                        status="running",
+                    ):
+                        return
                     cursor.execute(
                         """
-                        INSERT INTO source_files (satellite, path, status)
-                        VALUES (%s, %s, 'running')
+                        INSERT INTO source_files (satellite, path, source_key, status)
+                        VALUES (%s, %s, %s, 'running')
                         ON CONFLICT (satellite, path)
                         DO UPDATE SET
+                            source_key = COALESCE(EXCLUDED.source_key, source_files.source_key),
                             status = 'running',
                             last_error = NULL;
                         """,
-                        (satellite, str(source_file)),
+                        (satellite, str(source_file), source_key),
                     )
 
-    def mark_source_file_failed(self, satellite: str, source_file: Path, message: str) -> None:
+    def mark_source_file_failed(
+        self,
+        satellite: str,
+        source_file: Path,
+        message: str,
+        *,
+        source_key: str | None = None,
+    ) -> None:
         """Store parser, enrichment, or persistence failure details for operators."""
 
         with psycopg.connect(self._database.dsn, connect_timeout=5) as connection:
             with connection.transaction():
                 with connection.cursor() as cursor:
+                    if source_key and self._update_source_file_by_key(
+                        cursor,
+                        satellite=satellite,
+                        source_key=source_key,
+                        path=source_file,
+                        status="failed",
+                        last_error=message,
+                    ):
+                        return
                     cursor.execute(
                         """
-                        INSERT INTO source_files (satellite, path, status, last_error)
-                        VALUES (%s, %s, 'failed', %s)
+                        INSERT INTO source_files (satellite, path, source_key, status, last_error)
+                        VALUES (%s, %s, %s, 'failed', %s)
                         ON CONFLICT (satellite, path)
                         DO UPDATE SET
+                            source_key = COALESCE(EXCLUDED.source_key, source_files.source_key),
                             status = 'failed',
                             last_error = EXCLUDED.last_error;
                         """,
-                        (satellite, str(source_file), message),
+                        (satellite, str(source_file), source_key, message),
                     )
 
     def mark_run_failed(self, run_id: UUID, satellite: str, message: str) -> None:
@@ -209,23 +253,81 @@ class HotspotRepository:
         satellite: str,
         source_file: Path,
         *,
+        source_key: str | None,
         scene_id: str | None,
         observed_at: datetime | None,
     ) -> None:
+        if source_key and HotspotRepository._update_source_file_by_key(
+            cursor,
+            satellite=satellite,
+            source_key=source_key,
+            path=source_file,
+            status="completed",
+            scene_id=scene_id,
+            observed_at=observed_at,
+            processed=True,
+        ):
+            return
         cursor.execute(
             """
-            INSERT INTO source_files (satellite, path, scene_id, observed_at, status, processed_at)
-            VALUES (%s, %s, %s, %s, 'completed', now())
+            INSERT INTO source_files (
+                satellite,
+                path,
+                source_key,
+                scene_id,
+                observed_at,
+                status,
+                processed_at
+            )
+            VALUES (%s, %s, %s, %s, %s, 'completed', now())
             ON CONFLICT (satellite, path)
             DO UPDATE SET
+                source_key = COALESCE(EXCLUDED.source_key, source_files.source_key),
                 scene_id = EXCLUDED.scene_id,
                 observed_at = EXCLUDED.observed_at,
                 status = 'completed',
                 processed_at = now(),
                 last_error = NULL;
             """,
-            (satellite, str(source_file), scene_id, observed_at),
+            (satellite, str(source_file), source_key, scene_id, observed_at),
         )
+
+    @staticmethod
+    def _update_source_file_by_key(
+        cursor: psycopg.Cursor,
+        *,
+        satellite: str,
+        source_key: str,
+        path: Path,
+        status: str,
+        scene_id: str | None = None,
+        observed_at: datetime | None = None,
+        last_error: str | None = None,
+        processed: bool = False,
+    ) -> bool:
+        cursor.execute(
+            """
+            UPDATE source_files
+            SET path = %s,
+                status = %s,
+                scene_id = COALESCE(%s, scene_id),
+                observed_at = COALESCE(%s, observed_at),
+                processed_at = CASE WHEN %s THEN now() ELSE processed_at END,
+                last_error = %s
+            WHERE satellite = %s AND source_key = %s;
+            """,
+            (
+                str(path),
+                status,
+                scene_id,
+                observed_at,
+                processed,
+                last_error,
+                satellite,
+                source_key,
+            ),
+        )
+        return cursor.rowcount > 0
 
     @staticmethod
     def _insert_cluster(cursor: psycopg.Cursor, cluster: HotspotCluster) -> int:

@@ -15,6 +15,7 @@ from brin_hotspot.satellites.landsat8 import (
 def ingest_landsat8(
     settings: Settings,
     input_dir: Path | None = None,
+    input_dirs: tuple[Path, ...] | None = None,
     *,
     persist: bool = False,
     enrich: bool = False,
@@ -25,6 +26,7 @@ def ingest_landsat8(
         find_sources=find_landsat8_sources,
         parse_source=parse_landsat8_source,
         input_dir=input_dir,
+        input_dirs=input_dirs,
         persist=persist,
         enrich=enrich,
     )
