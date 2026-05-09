@@ -930,11 +930,13 @@ function Row({ title, meta }: { title: string; meta: string }) {
 
 function FeatureInspector({ feature, onClose }: { feature: GeoJSON.Feature; onClose: () => void }) {
   const props = feature.properties ?? {};
+  const coordinates = pointCoordinates(feature);
   return (
     <div className="inspector">
       <button onClick={onClose} aria-label="Close">×</button>
       <h2>{String(props.satellite ?? "").toUpperCase()} hotspot</h2>
       <dl>
+        <dt>Coordinates</dt><dd>{formatCoordinates(coordinates)}</dd>
         <dt>Confidence</dt><dd>{String(props.confidence ?? "-")}</dd>
         <dt>Observed</dt><dd>{formatDate(String(props.observed_at ?? ""))}</dd>
         <dt>Province</dt><dd>{String(props.province ?? "-")}</dd>
@@ -944,6 +946,21 @@ function FeatureInspector({ feature, onClose }: { feature: GeoJSON.Feature; onCl
       </dl>
     </div>
   );
+}
+
+function pointCoordinates(feature: GeoJSON.Feature) {
+  if (!feature.geometry || feature.geometry.type !== "Point") {
+    return null;
+  }
+  const [longitude, latitude] = feature.geometry.coordinates;
+  return { latitude, longitude };
+}
+
+function formatCoordinates(coordinates: { latitude: number; longitude: number } | null) {
+  if (!coordinates) {
+    return "-";
+  }
+  return `${coordinates.latitude.toFixed(6)}, ${coordinates.longitude.toFixed(6)}`;
 }
 
 function formatDate(value?: string | null) {

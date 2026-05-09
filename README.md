@@ -4,12 +4,6 @@
   <img src="images/hotspot-logo.png" alt="BRIN Hotspot Monitoring System logo" width="220">
 </p>
 
-<p align="center">
-  <a href="LICENSE">
-    <img src="https://img.shields.io/badge/license-BSD%203--Clause-blue.svg" alt="License: BSD 3-Clause">
-  </a>
-</p>
-
 Modernized hotspot processing for the BRIN/LAPAN Indonesia fire detection pipeline.
 
 ## Description
