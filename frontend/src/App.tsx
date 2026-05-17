@@ -1,6 +1,8 @@
 import {
   Activity,
   BarChart3,
+  ChevronDown,
+  ChevronRight,
   Database,
   Download,
   Flame,
@@ -23,7 +25,7 @@ import {
   getSummary,
   getTrend
 } from "./api";
-import hotspotLogo from "./assets/hotspot-logo.png";
+import hotspotIcon from "./assets/hotspot-icon.png";
 import type {
   HotspotCollection,
   HotspotStatistics,
@@ -47,6 +49,7 @@ const SATELLITE_COLORS: Record<string, string> = {
 // so the map and sidebar legend read as one continuous low-to-high risk ramp.
 const CONFIDENCE_VALUES = Array.from({ length: 10 }, (_, index) => index);
 type Basemap = "street" | "satellite";
+type DetailSection = "status" | "runs" | "sources";
 
 export default function App() {
   const mapRef = useRef<maplibregl.Map | null>(null);
@@ -72,8 +75,14 @@ export default function App() {
     kecamatan: []
   });
   const [selected, setSelected] = useState<GeoJSON.Feature | null>(null);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [rightRailOpen, setRightRailOpen] = useState(false);
   const [bottomRailOpen, setBottomRailOpen] = useState(false);
+  const [detailSections, setDetailSections] = useState<Record<DetailSection, boolean>>({
+    status: true,
+    runs: true,
+    sources: true
+  });
   const [basemap, setBasemap] = useState<Basemap>("street");
 
   // Header metrics come from the operational summary, not the current map
@@ -213,6 +222,10 @@ export default function App() {
     updateBasemap();
   }, [basemap]);
 
+  useEffect(() => {
+    window.setTimeout(() => mapRef.current?.resize(), 0);
+  }, [sidebarCollapsed, rightRailOpen, bottomRailOpen]);
+
   async function refresh() {
     const filters = {
       kind,
@@ -260,6 +273,10 @@ export default function App() {
         ? current.filter((item) => item !== satellite)
         : [...current, satellite]
     );
+  }
+
+  function toggleDetailSection(section: DetailSection) {
+    setDetailSections((current) => ({ ...current, [section]: !current[section] }));
   }
 
   function updateProvince(value: string) {
@@ -323,16 +340,20 @@ export default function App() {
   }
 
   return (
-    <main className={`app-shell ${rightRailOpen ? "" : "rail-collapsed"}`}>
-      <aside className="sidebar">
-        <header className="brand">
-          <img className="brand-logo" src={hotspotLogo} alt="BRIN Hotspot Monitoring System" />
+    <main className={`app-shell ${rightRailOpen ? "" : "rail-collapsed"} ${sidebarCollapsed ? "sidebar-collapsed" : ""}`}>
+      <aside className={`sidebar ${sidebarCollapsed ? "collapsed" : ""}`}>
+        <button className="brand brand-toggle" onClick={() => setSidebarCollapsed((collapsed) => !collapsed)} title="Toggle sidebar">
+          <img className="brand-logo" src={hotspotIcon} alt="BRIN Hotspot Monitoring System" />
+          {!sidebarCollapsed ? (
           <div>
             <p>BRIN Fire Hotspot</p>
             <span>Indonesia active fire monitoring</span>
           </div>
-        </header>
+          ) : null}
+        </button>
 
+        {!sidebarCollapsed ? (
+        <>
         <section className="panel metrics">
           <Metric icon={<Layers size={18} />} label="Clusters" value={totals.clusters} />
           <Metric icon={<Flame size={18} />} label="Pixels" value={totals.pixels} />
@@ -453,17 +474,18 @@ export default function App() {
             ))}
           </div>
         </section>
-
+        </>
+        ) : null}
       </aside>
 
       <section className="map-area">
         <div className="map-toolbar">
-          <div>
+          <div className="toolbar-count">
             <strong>{formatCount(visibleCount)}</strong>
             <span> visible {kind}s</span>
           </div>
           <div className="basemap-switch" aria-label="Basemap">
-            <MapIcon size={16} />
+            <MapIcon className="segmented-icon" size={16} />
             <button className={basemap === "street" ? "active" : ""} onClick={() => setBasemap("street")}>
               Street
             </button>
@@ -471,13 +493,13 @@ export default function App() {
               Satellite
             </button>
           </div>
-          <button onClick={() => setRightRailOpen((open) => !open)}>
+          <button className="toolbar-button" onClick={() => setRightRailOpen((open) => !open)}>
             {rightRailOpen ? <PanelRightClose size={16} /> : <PanelRightOpen size={16} />}
             Details
           </button>
-          <button onClick={() => setBottomRailOpen((open) => !open)}><BarChart3 size={16} /> Statistics</button>
-          <button onClick={() => void refresh()}><RefreshCw size={16} /> Refresh</button>
-          <button onClick={exportGeoJson}><Download size={16} /> GeoJSON</button>
+          <button className="toolbar-button" onClick={() => setBottomRailOpen((open) => !open)}><BarChart3 size={16} /> Statistics</button>
+          <button className="toolbar-button" onClick={() => void refresh()}><RefreshCw size={16} /> Refresh</button>
+          <button className="toolbar-button" onClick={exportGeoJson}><Download size={16} /> GeoJSON</button>
         </div>
         <div ref={mapNodeRef} className="map" />
         {selected && <FeatureInspector feature={selected} onClose={() => setSelected(null)} />}
@@ -501,47 +523,59 @@ export default function App() {
       {rightRailOpen && (
         <aside className="right-rail">
           <section className="panel status-panel">
-            <div className="panel-title">
-              <Layers size={16} />
-              <span>Status</span>
-            </div>
-            {sourceStatusRows.map((status) => (
-              <div className="status-row" key={`${status.satellite}-${status.status}`}>
-                <span>{status.satellite.toUpperCase()} · {status.status}</span>
-                <strong>{status.count}</strong>
+            <button className="panel-title collapsible-title" onClick={() => toggleDetailSection("status")}>
+              <span><Layers size={16} /> Status</span>
+              {detailSections.status ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
+            </button>
+            {detailSections.status ? (
+              <div className="collapsible-content">
+                {sourceStatusRows.map((status) => (
+                  <div className="status-row" key={`${status.satellite}-${status.status}`}>
+                    <span>{status.satellite.toUpperCase()} · {status.status}</span>
+                    <strong>{status.count}</strong>
+                  </div>
+                ))}
               </div>
-            ))}
+            ) : null}
           </section>
           <section className="panel list-panel">
-            <div className="panel-title">
-              <Activity size={16} />
-              <span>Recent Runs</span>
-            </div>
-            {latestRunsBySatellite.map((run) => (
-              <Row
-                key={run.id}
-                title={`${run.satellite.toUpperCase()} ${run.status}`}
-                meta={formatDate(run.started_at)}
-              />
-            ))}
-          </section>
-          <section className="panel">
-            <div className="panel-title">
-              <Database size={16} />
-              <span>Source Files</span>
-            </div>
-            {latestSourcesBySatellite.map(([satellite, satelliteSources]) => (
-              <div className="satellite-group" key={satellite}>
-                <div className="group-title">{satellite.toUpperCase()}</div>
-                {satelliteSources.map((source) => (
+            <button className="panel-title collapsible-title" onClick={() => toggleDetailSection("runs")}>
+              <span><Activity size={16} /> Recent Runs</span>
+              {detailSections.runs ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
+            </button>
+            {detailSections.runs ? (
+              <div className="collapsible-content">
+                {latestRunsBySatellite.map((run) => (
                   <Row
-                    key={`${source.satellite}-${source.path}`}
-                    title={source.status}
-                    meta={source.path.split("/").at(-1) ?? source.path}
+                    key={run.id}
+                    title={`${run.satellite.toUpperCase()} ${run.status}`}
+                    meta={formatDate(run.started_at)}
                   />
                 ))}
               </div>
-            ))}
+            ) : null}
+          </section>
+          <section className="panel">
+            <button className="panel-title collapsible-title" onClick={() => toggleDetailSection("sources")}>
+              <span><Database size={16} /> Source Files</span>
+              {detailSections.sources ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
+            </button>
+            {detailSections.sources ? (
+              <div className="collapsible-content">
+                {latestSourcesBySatellite.map(([satellite, satelliteSources]) => (
+                  <div className="satellite-group" key={satellite}>
+                    <div className="group-title">{satellite.toUpperCase()}</div>
+                    {satelliteSources.map((source) => (
+                      <Row
+                        key={`${source.satellite}-${source.path}`}
+                        title={source.status}
+                        meta={source.path.split("/").at(-1) ?? source.path}
+                      />
+                    ))}
+                  </div>
+                ))}
+              </div>
+            ) : null}
           </section>
         </aside>
       )}
