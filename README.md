@@ -398,6 +398,26 @@ docker compose --profile service stop \
 
 The default service profile processes SNPP, NOAA20, AQUA, and TERA with enrichment enabled. `modis-converter-aqua-service` and `modis-converter-tera-service` refresh HDF4 files from original and BUFFER MODIS roots into `/app/data/output/modis-converted`, and the satellite-specific worker services ingest independently from their own input roots.
 
+Docker log rotation is enabled by default for every Compose service with the `json-file` driver:
+
+- `max-size: 100m`
+- `max-file: 3`
+
+After changing logging settings, recreate containers so Docker applies the new limits:
+
+```bash
+docker compose --profile service up -d --force-recreate \
+  db \
+  api \
+  frontend \
+  worker-snpp-service \
+  worker-noaa20-service \
+  worker-aqua-service \
+  worker-tera-service \
+  modis-converter-aqua-service \
+  modis-converter-tera-service
+```
+
 Enable file-level tracing when diagnosing discovery, skip, conversion, or ingestion behavior:
 
 ```bash

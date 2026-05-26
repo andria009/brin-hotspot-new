@@ -1,6 +1,13 @@
+x-log-rotation: &log-rotation
+  driver: json-file
+  options:
+    max-size: "100m"
+    max-file: "3"
+
 services:
   db:
     image: postgis/postgis:16-3.4
+    logging: *log-rotation
     environment:
       POSTGRES_DB: hotspot
       POSTGRES_USER: hotspot
@@ -20,6 +27,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+    logging: *log-rotation
     env_file:
       - path: .env
         required: false
@@ -57,6 +65,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+    logging: *log-rotation
     profiles: ["service"]
     restart: unless-stopped
     env_file:
@@ -113,6 +122,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+    logging: *log-rotation
     profiles: ["service"]
     restart: unless-stopped
     env_file:
@@ -164,6 +174,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+    logging: *log-rotation
     profiles: ["service"]
     restart: unless-stopped
     env_file:
@@ -213,6 +224,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+    logging: *log-rotation
     profiles: ["service"]
     restart: unless-stopped
     env_file:
@@ -262,6 +274,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+    logging: *log-rotation
     env_file:
       - path: .env
         required: false
@@ -290,6 +303,7 @@ services:
     build:
       context: .
       dockerfile: frontend/Dockerfile
+    logging: *log-rotation
     ports:
       - "${HOTSPOT_FRONTEND_PORT:-8080}:80"
     depends_on:
@@ -299,6 +313,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.modis-converter
+    logging: *log-rotation
     volumes:
       - ./data/output/modis-converted:/app/data/output/modis-converted
       - /mnt/geomimo-data/DataProses/AQUA:/app/data/input/aqua:ro
@@ -316,6 +331,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.modis-converter
+    logging: *log-rotation
     profiles: ["service"]
     restart: unless-stopped
     environment:
@@ -351,6 +367,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.modis-converter
+    logging: *log-rotation
     profiles: ["service"]
     restart: unless-stopped
     environment:

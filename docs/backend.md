@@ -87,6 +87,18 @@ Stop all services without deleting database volumes:
 docker compose down
 ```
 
+Compose applies Docker log rotation to every service by default:
+
+```yaml
+logging:
+  driver: json-file
+  options:
+    max-size: "100m"
+    max-file: "3"
+```
+
+Recreate existing containers after logging changes so Docker picks up the new limits.
+
 ## Configuration
 
 Backend configuration comes from environment variables and optional `.env`.
