@@ -64,7 +64,7 @@ export default function App() {
   const [runs, setRuns] = useState<IngestionRun[]>([]);
   const [sources, setSources] = useState<SourceFile[]>([]);
   const [kind, setKind] = useState<HotspotKind>("cluster");
-  const [clusterProjection, setClusterProjection] = useState<ClusterProjection>("local");
+  const [clusterProjection, setClusterProjection] = useState<ClusterProjection>("latitude_adjusted");
   const [satellites, setSatellites] = useState<string[]>(["snpp", "noaa20", "aqua", "tera"]);
   const [minConfidence, setMinConfidence] = useState(7);
   const [observedFrom, setObservedFrom] = useState("");
@@ -402,10 +402,10 @@ export default function App() {
             <span>Clustering projection</span>
             <div className="segmented projection-switch">
               <button
-                className={clusterProjection === "local" ? "active" : ""}
-                onClick={() => setClusterProjection("local")}
+                className={clusterProjection === "latitude_adjusted" ? "active" : ""}
+                onClick={() => setClusterProjection("latitude_adjusted")}
               >
-                Local
+                Latitude-adjusted
               </button>
               <button
                 className={clusterProjection === "epsg4087" ? "active" : ""}

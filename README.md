@@ -131,8 +131,25 @@ Operationally, SNPP, NOAA20, AQUA, and TERA therefore converge into the same dat
 - `source_files.source_key` stores the stable production file or scene identity used to skip duplicates across different input roots.
 - `ingestion_runs` records each command or worker cycle run.
 - `hotspot_pixel` stores individual detections.
-- `hotspot_cluster` stores clustered hotspot groups.
+- `hotspot_cluster` stores clustered hotspot groups. The `cluster_projection` field stores the projection variant used to build the cluster.
 - Administrative enrichment fields are updated on conflict, so replaying completed sources after reference-data import can backfill province, kabupaten, and kecamatan values.
+
+## Cluster Projection Variants
+
+The system stores cluster variants instead of recomputing clusters during API reads. This keeps the frontend responsive while still allowing users and developers to compare methods.
+
+Supported `hotspot_cluster.cluster_projection` values:
+
+- `latitude_adjusted`: the default latitude-adjusted equirectangular meters approximation. Longitude is scaled by `cos(latitude)` before Euclidean neighbor distance is measured.
+- `epsg4087`: the legacy-compatible WGS 84 / World Equidistant Cylindrical projection.
+
+The frontend labels the default method as **Latitude-adjusted**. This is more precise than "local" because the important behavior is latitude-dependent longitude scaling. This method is preferable for small hotspot-neighbor distance tests because each detection uses the local east-west meter scale at its latitude. EPSG:4087 is a global equidistant cylindrical CRS with the standard parallel at the equator, so its east-west scale is exact at the equator but not locally adjusted for every hotspot latitude.
+
+References:
+
+- PROJ documentation for Equidistant Cylindrical / Plate Carree notes that the latitude of true scale controls where scale is true and gives the forward formula using `cos(lat_ts)`: <https://proj.org/en/stable/operations/projections/eqc.html>
+- EPSG:4087 is defined as WGS 84 / World Equidistant Cylindrical with scope "Graticule coordinates expressed in simple Cartesian form": <https://epsg.io/4087>
+- GDAL documents Equirectangular as also known as Plate Carree, Equidistant Cylindrical, and Simple Cylindrical: <https://gdal.org/en/stable/proj_list/equirectangular.html>
 
 ## Local Python
 
@@ -305,6 +322,20 @@ docker compose run --rm worker hotspot admin replay-satellite --satellite tera -
 
 # Replay failed files after fixing parser/input issues.
 docker compose run --rm worker hotspot admin replay-satellite --satellite snpp --status failed
+```
+
+Materialize stored EPSG:4087 cluster rows from existing pixels after applying the cluster projection migration:
+
+```bash
+docker compose run --rm worker hotspot db migrate
+docker compose run --rm worker hotspot admin materialize-clusters --cluster-projection epsg4087
+```
+
+For production backfill, the materialization command can be run by satellite or date window:
+
+```bash
+docker compose run --rm worker hotspot admin materialize-clusters --cluster-projection epsg4087 --satellite snpp
+docker compose run --rm worker hotspot admin materialize-clusters --cluster-projection epsg4087 --observed-from 2026-08-01T00:00:00 --observed-to 2026-08-31T23:59:59
 ```
 
 ## Raster Metadata
@@ -554,6 +585,7 @@ curl http://localhost:8000/api/v1/health
 curl http://localhost:8000/api/v1/summary
 curl "http://localhost:8000/api/v1/locations?province=Riau&kabupaten=Pelalawan"
 curl "http://localhost:8000/api/v1/hotspots?kind=cluster&satellite=snpp&min_confidence=7&limit=1000"
+curl "http://localhost:8000/api/v1/hotspots?kind=cluster&cluster_projection=epsg4087&satellite=snpp&min_confidence=7&limit=1000"
 curl "http://localhost:8000/api/v1/hotspots?kind=pixel&satellite=snpp&satellite=noaa20&observed_from=2026-04-24T00:00:00&observed_to=2026-04-24T23:59:59&province=Riau&kabupaten=Pelalawan&kecamatan=Menteng"
 curl "http://localhost:8000/api/v1/statistics?kind=cluster&satellite=snpp&satellite=noaa20&province=Riau"
 curl "http://localhost:8000/api/v1/trend?kind=cluster&satellite=snpp&satellite=noaa20&observed_from=2026-04-24T00:00:00&observed_to=2026-04-27T23:59:59"
@@ -569,6 +601,7 @@ curl "http://localhost:8000/api/v1/source-files?status=failed&limit=20"
 The hotspot endpoint supports these read-only filters:
 
 - `kind=cluster|pixel`
+- `cluster_projection=latitude_adjusted|epsg4087` for `kind=cluster`
 - repeated `satellite` parameters
 - `observed_from` and `observed_to`
 - `min_confidence`

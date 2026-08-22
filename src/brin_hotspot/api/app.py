@@ -60,7 +60,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             Query(description="west,south,east,north"),
         ] = None,
         limit: Annotated[int, Query(ge=1, le=5000)] = 1000,
-        cluster_projection: Annotated[Literal["local", "epsg4087"], Query()] = "local",
+        cluster_projection: Annotated[
+            Literal["latitude_adjusted", "epsg4087"],
+            Query(),
+        ] = "latitude_adjusted",
     ) -> GeoJsonFeatureCollection:
         satellites = satellite or ()
         return GeoJsonFeatureCollection(
@@ -103,7 +106,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         kabupaten: str | None = None,
         kecamatan: str | None = None,
         limit: Annotated[int, Query(ge=1, le=50)] = 20,
-        cluster_projection: Annotated[Literal["local", "epsg4087"], Query()] = "local",
+        cluster_projection: Annotated[
+            Literal["latitude_adjusted", "epsg4087"],
+            Query(),
+        ] = "latitude_adjusted",
     ) -> HotspotStatisticsResponse:
         return repository.statistics(
             kind=kind,
@@ -129,7 +135,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         province: str | None = None,
         kabupaten: str | None = None,
         kecamatan: str | None = None,
-        cluster_projection: Annotated[Literal["local", "epsg4087"], Query()] = "local",
+        cluster_projection: Annotated[
+            Literal["latitude_adjusted", "epsg4087"],
+            Query(),
+        ] = "latitude_adjusted",
     ) -> HotspotTrendResponse:
         return repository.trend(
             kind=kind,

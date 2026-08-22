@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import datetime
 from pathlib import Path
 from typing import Annotated, Any, cast
 from uuid import uuid4
@@ -637,6 +638,54 @@ def import_geojson_command(
     repository = ReferenceRepository(settings.hotspot_database)
     imported_count = repository.import_features(cast(ReferenceDataset, dataset), features)
     typer.echo(f"ok dataset={dataset} imported={imported_count}")
+
+
+@admin_app.command("materialize-clusters")
+def materialize_clusters_command(
+    projection: Annotated[
+        str,
+        typer.Option(
+            "--cluster-projection",
+            help="Cluster projection variant to materialize: latitude_adjusted or epsg4087.",
+        ),
+    ] = "epsg4087",
+    satellites: Annotated[
+        list[str] | None,
+        typer.Option("--satellite", help="Satellite to include. Repeatable."),
+    ] = None,
+    observed_from: Annotated[
+        datetime | None,
+        typer.Option("--observed-from", help="Only include pixels observed at or after this time."),
+    ] = None,
+    observed_to: Annotated[
+        datetime | None,
+        typer.Option("--observed-to", help="Only include pixels observed at or before this time."),
+    ] = None,
+    min_confidence: Annotated[
+        int | None,
+        typer.Option("--min-confidence", min=0, max=9),
+    ] = None,
+) -> None:
+    """Materialize stored cluster rows from existing pixels for one projection variant."""
+
+    from brin_hotspot.ingestion.clustering import ClusteringProjection
+    from brin_hotspot.repositories.hotspot_repository import HotspotRepository
+
+    allowed = {"latitude_adjusted", "epsg4087"}
+    if projection not in allowed:
+        typer.echo(f"--cluster-projection must be one of: {', '.join(sorted(allowed))}", err=True)
+        raise typer.Exit(2)
+
+    settings = _bootstrap()
+    repository = HotspotRepository(settings.hotspot_database)
+    cluster_count = repository.materialize_cluster_projection(
+        cluster_projection=cast(ClusteringProjection, projection),
+        satellites=tuple(satellite.lower() for satellite in satellites or ()),
+        observed_from=observed_from,
+        observed_to=observed_to,
+        min_confidence=min_confidence,
+    )
+    typer.echo(f"ok cluster_projection={projection} clusters={cluster_count}")
 
 
 if __name__ == "__main__":

@@ -26,6 +26,7 @@ Hotspot, statistics, and trend endpoints share the same filtering model.
 | Parameter | Type | Description |
 | --- | --- | --- |
 | `kind` | `cluster` or `pixel` | Select cluster or individual pixel records. Default: `cluster`. |
+| `cluster_projection` | `latitude_adjusted` or `epsg4087` | Stored cluster projection variant. Applies only when `kind=cluster`. Default: `latitude_adjusted`. |
 | `satellite` | repeatable string | Satellite filter. Example: `satellite=snpp&satellite=noaa20`. |
 | `observed_from` | ISO datetime | Inclusive observation start time. |
 | `observed_to` | ISO datetime | Inclusive observation end time. |
@@ -91,6 +92,12 @@ Example:
 
 ```bash
 curl "http://localhost:8000/api/v1/hotspots?kind=cluster&satellite=snpp&satellite=noaa20&min_confidence=7&limit=1000"
+```
+
+Projection variant example:
+
+```bash
+curl "http://localhost:8000/api/v1/hotspots?kind=cluster&cluster_projection=epsg4087&satellite=snpp&min_confidence=7&limit=1000"
 ```
 
 Filtered example:

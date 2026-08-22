@@ -1,5 +1,5 @@
 export type HotspotKind = "cluster" | "pixel";
-export type ClusterProjection = "local" | "epsg4087";
+export type ClusterProjection = "latitude_adjusted" | "epsg4087";
 
 // These types mirror the FastAPI response schemas. Keep them aligned with
 // src/brin_hotspot/api/schemas.py when adding or renaming API fields.

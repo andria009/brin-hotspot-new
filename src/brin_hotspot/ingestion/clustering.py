@@ -6,7 +6,7 @@ from typing import Literal
 
 from brin_hotspot.domain import HotspotCluster, HotspotDetection
 
-ClusteringProjection = Literal["local", "epsg4087"]
+ClusteringProjection = Literal["latitude_adjusted", "epsg4087"]
 
 
 def cluster_detections(
@@ -14,7 +14,7 @@ def cluster_detections(
     *,
     resolution_meters: float,
     neighbor_multiplier: float = 2.0,
-    projection: ClusteringProjection = "local",
+    projection: ClusteringProjection = "latitude_adjusted",
 ) -> list[HotspotCluster]:
     """Group detections using the legacy connected-neighbor distance rule."""
     if not detections:
@@ -49,7 +49,7 @@ def _project_detections(
     detections: list[HotspotDetection],
     projection: ClusteringProjection,
 ) -> list[tuple[float, float]]:
-    if projection == "local":
+    if projection == "latitude_adjusted":
         return [_project_to_local_meters(item) for item in detections]
     if projection == "epsg4087":
         return _project_to_epsg4087(detections)

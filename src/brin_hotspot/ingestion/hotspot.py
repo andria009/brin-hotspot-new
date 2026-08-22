@@ -314,7 +314,27 @@ def _process_source(
         source_detections,
         resolution_meters=satellite_settings.resolution_meters,
         neighbor_multiplier=satellite_settings.neighbor_multiplier,
+        projection="latitude_adjusted",
     )
+    source_cluster_variants = {"latitude_adjusted": source_clusters}
+    if repository:
+        try:
+            source_cluster_variants["epsg4087"] = cluster_detections(
+                source_detections,
+                resolution_meters=satellite_settings.resolution_meters,
+                neighbor_multiplier=satellite_settings.neighbor_multiplier,
+                projection="epsg4087",
+            )
+        except RuntimeError:
+            logger.warning(
+                "hotspot_epsg4087_cluster_variant_skipped",
+                extra={
+                    "run_id": str(run_id),
+                    "satellite": satellite_settings.satellite,
+                    "source": str(source.path),
+                    "reason": "pyproj_unavailable",
+                },
+            )
     source_output_dir = settings.paths.output_dir / satellite_settings.satellite
     # Prefix outputs with run/source order so repeated replays do not overwrite
     # older CSV artifacts from previous runs.
@@ -340,6 +360,7 @@ def _process_source(
                     source_files=source.files,
                     source_key=source.source_key,
                     clusters=source_clusters,
+                    cluster_variants=source_cluster_variants,
                     pixel_radius_meters=pixel_radius_meters,
                     source_metadata={
                         # Preserve source metadata even if every detection from a

@@ -136,7 +136,7 @@ The hotspot database stores operational state and geospatial hotspot products.
 | Table | Purpose |
 | --- | --- |
 | `hotspot_pixel` | Individual hotspot detections with coordinates, confidence, satellite, source metadata, and administrative enrichment fields. |
-| `hotspot_cluster` | Clustered hotspot groups derived from filtered pixels. |
+| `hotspot_cluster` | Clustered hotspot groups derived from filtered pixels, including the stored `cluster_projection` variant. |
 | `source_files` | Source-file checkpoints with satellite, path, stable source key, scene id, observed time, status, timestamps, and last error. |
 | `ingestion_runs` | Ingestion command or worker-cycle run history. |
 | `prov_ar` | Province reference polygons. |
@@ -219,9 +219,9 @@ The shared ingestion engine is used by every satellite family. Satellite-specifi
 2. Parse detections into a common hotspot pixel model.
 3. Optionally enrich pixels with PostGIS reference polygons.
 4. Optionally filter persistent anomalies and duplicates.
-5. Cluster remaining pixels.
+5. Cluster remaining pixels using the default latitude-adjusted projection and, when `pyproj` is available, the EPSG:4087 stored variant.
 6. Write CSV outputs.
-7. Optionally persist pixels and clusters to PostGIS.
+7. Optionally persist pixels and projection-specific clusters to PostGIS.
 8. Update source-file and ingestion-run status.
 
 Run ingestion without persistence:

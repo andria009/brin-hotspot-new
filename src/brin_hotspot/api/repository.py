@@ -1,9 +1,7 @@
 from __future__ import annotations
 
-from collections import defaultdict
 from collections.abc import Sequence
 from datetime import datetime
-from pathlib import Path
 from typing import Any, Literal
 
 import psycopg
@@ -21,21 +19,9 @@ from brin_hotspot.api.schemas import (
     TrendItem,
 )
 from brin_hotspot.config import DatabaseSettings
-from brin_hotspot.domain import AdminLocation, HotspotDetection
-from brin_hotspot.ingestion.clustering import ClusteringProjection, cluster_detections
-from brin_hotspot.satellites.landsat8 import LANDSAT8_SETTINGS
-from brin_hotspot.satellites.modis import AQUA_SETTINGS, TERA_SETTINGS
-from brin_hotspot.satellites.snpp import NOAA20_SETTINGS, SNPP_SETTINGS
+from brin_hotspot.ingestion.clustering import ClusteringProjection
 
 HotspotKind = Literal["pixel", "cluster"]
-
-_SATELLITE_CLUSTER_SETTINGS = {
-    "snpp": SNPP_SETTINGS,
-    "noaa20": NOAA20_SETTINGS,
-    "aqua": AQUA_SETTINGS,
-    "tera": TERA_SETTINGS,
-    "landsat8": LANDSAT8_SETTINGS,
-}
 
 
 class ReadOnlyHotspotRepository:
@@ -65,6 +51,7 @@ class ReadOnlyHotspotRepository:
                     cluster_counts AS (
                         SELECT satellite, count(*)::int AS clusters
                         FROM hotspot_cluster
+                        WHERE cluster_projection = 'latitude_adjusted'
                         GROUP BY satellite
                     )
                     SELECT satellites.satellite,
@@ -119,22 +106,8 @@ class ReadOnlyHotspotRepository:
         kecamatan: str | None = None,
         bbox: tuple[float, float, float, float] | None = None,
         limit: int = 1000,
-        cluster_projection: ClusteringProjection = "local",
+        cluster_projection: ClusteringProjection = "latitude_adjusted",
     ) -> list[dict[str, Any]]:
-        if kind == "cluster":
-            return self._clustered_hotspot_features(
-                satellites=satellites,
-                observed_from=observed_from,
-                observed_to=observed_to,
-                min_confidence=min_confidence,
-                province=province,
-                kabupaten=kabupaten,
-                kecamatan=kecamatan,
-                bbox=bbox,
-                limit=limit,
-                cluster_projection=cluster_projection,
-            )
-
         table = "hotspot_pixel" if kind == "pixel" else "hotspot_cluster"
         id_column = "hid" if kind == "pixel" else "cid"
         query = f"""
@@ -163,6 +136,7 @@ class ReadOnlyHotspotRepository:
             kabupaten=kabupaten,
             kecamatan=kecamatan,
             bbox=bbox,
+            cluster_projection=cluster_projection if kind == "cluster" else None,
         )
         if where:
             query += " WHERE " + " AND ".join(where)
@@ -189,24 +163,8 @@ class ReadOnlyHotspotRepository:
         kabupaten: str | None = None,
         kecamatan: str | None = None,
         bbox: tuple[float, float, float, float] | None = None,
-        cluster_projection: ClusteringProjection = "local",
+        cluster_projection: ClusteringProjection = "latitude_adjusted",
     ) -> int:
-        if kind == "cluster":
-            return len(
-                self._clustered_hotspot_features(
-                    satellites=satellites,
-                    observed_from=observed_from,
-                    observed_to=observed_to,
-                    min_confidence=min_confidence,
-                    province=province,
-                    kabupaten=kabupaten,
-                    kecamatan=kecamatan,
-                    bbox=bbox,
-                    limit=None,
-                    cluster_projection=cluster_projection,
-                )
-            )
-
         table = "hotspot_pixel" if kind == "pixel" else "hotspot_cluster"
         query = f"SELECT count(*)::int FROM {table}"
         where, params = _hotspot_filters(
@@ -218,6 +176,7 @@ class ReadOnlyHotspotRepository:
             kabupaten=kabupaten,
             kecamatan=kecamatan,
             bbox=bbox,
+            cluster_projection=cluster_projection if kind == "cluster" else None,
         )
         if where:
             query += " WHERE " + " AND ".join(where)
@@ -241,8 +200,9 @@ class ReadOnlyHotspotRepository:
         kabupaten: str | None = None,
         kecamatan: str | None = None,
         limit: int = 20,
-        cluster_projection: ClusteringProjection = "local",
+        cluster_projection: ClusteringProjection = "latitude_adjusted",
     ) -> HotspotStatisticsResponse:
+        table = "hotspot_pixel" if kind == "pixel" else "hotspot_cluster"
         if kecamatan:
             level = "satellite"
             group_expression = "satellite"
@@ -260,32 +220,6 @@ class ReadOnlyHotspotRepository:
             group_expression = "COALESCE(NULLIF(provinsi, ''), 'Unknown')"
             group_alias = "label"
 
-        if kind == "cluster":
-            features = self._clustered_hotspot_features(
-                satellites=satellites,
-                observed_from=observed_from,
-                observed_to=observed_to,
-                min_confidence=min_confidence,
-                province=province,
-                kabupaten=kabupaten,
-                kecamatan=kecamatan,
-                bbox=None,
-                limit=None,
-                cluster_projection=cluster_projection,
-            )
-            grouped = _group_cluster_statistics(features, level)
-            items = [
-                StatisticItem(
-                    label=label,
-                    total=sum(satellite_counts.values()),
-                    satellites=satellite_counts,
-                )
-                for label, satellite_counts in grouped.items()
-            ]
-            items.sort(key=lambda item: (-item.total, item.label))
-            return HotspotStatisticsResponse(level=level, items=items[: min(max(limit, 1), 50)])
-
-        table = "hotspot_pixel"
         where, params = _hotspot_filters(
             satellites=satellites,
             observed_from=observed_from,
@@ -295,6 +229,7 @@ class ReadOnlyHotspotRepository:
             kabupaten=kabupaten,
             kecamatan=kecamatan,
             bbox=None,
+            cluster_projection=cluster_projection if kind == "cluster" else None,
         )
         query = f"""
             SELECT {group_expression} AS {group_alias},
@@ -339,43 +274,9 @@ class ReadOnlyHotspotRepository:
         province: str | None = None,
         kabupaten: str | None = None,
         kecamatan: str | None = None,
-        cluster_projection: ClusteringProjection = "local",
+        cluster_projection: ClusteringProjection = "latitude_adjusted",
     ) -> HotspotTrendResponse:
-        if kind == "cluster":
-            features = self._clustered_hotspot_features(
-                satellites=satellites,
-                observed_from=observed_from,
-                observed_to=observed_to,
-                min_confidence=min_confidence,
-                province=province,
-                kabupaten=kabupaten,
-                kecamatan=kecamatan,
-                bbox=None,
-                limit=None,
-                cluster_projection=cluster_projection,
-            )
-            grouped: dict[str, dict[str, int]] = {}
-            for feature in features:
-                properties = feature["properties"]
-                observed_at = properties.get("observed_at")
-                satellite = properties.get("satellite")
-                if not observed_at or not satellite:
-                    continue
-                date_key = str(observed_at)[:10]
-                satellite_counts = grouped.setdefault(date_key, {})
-                satellite_counts[str(satellite)] = satellite_counts.get(str(satellite), 0) + 1
-            return HotspotTrendResponse(
-                items=[
-                    TrendItem(
-                        date=date_key,
-                        total=sum(satellite_counts.values()),
-                        satellites=satellite_counts,
-                    )
-                    for date_key, satellite_counts in sorted(grouped.items())
-                ]
-            )
-
-        table = "hotspot_pixel"
+        table = "hotspot_pixel" if kind == "pixel" else "hotspot_cluster"
         where, params = _hotspot_filters(
             satellites=satellites,
             observed_from=observed_from,
@@ -385,6 +286,7 @@ class ReadOnlyHotspotRepository:
             kabupaten=kabupaten,
             kecamatan=kecamatan,
             bbox=None,
+            cluster_projection=cluster_projection if kind == "cluster" else None,
         )
         query = f"""
             SELECT observed_at::date AS observed_date,
@@ -567,118 +469,6 @@ class ReadOnlyHotspotRepository:
             kecamatan=kecamatan,
         )
 
-    def _clustered_hotspot_features(
-        self,
-        *,
-        satellites: Sequence[str],
-        observed_from: datetime | None,
-        observed_to: datetime | None,
-        min_confidence: int | None,
-        province: str | None,
-        kabupaten: str | None,
-        kecamatan: str | None,
-        bbox: tuple[float, float, float, float] | None,
-        limit: int | None,
-        cluster_projection: ClusteringProjection,
-    ) -> list[dict[str, Any]]:
-        rows = self._filtered_pixel_rows(
-            satellites=satellites,
-            observed_from=observed_from,
-            observed_to=observed_to,
-            min_confidence=min_confidence,
-            province=province,
-            kabupaten=kabupaten,
-            kecamatan=kecamatan,
-            bbox=bbox,
-        )
-        grouped: dict[tuple[str, datetime, str, str], list[HotspotDetection]] = defaultdict(list)
-        for row in rows:
-            detection = _detection_from_pixel_row(row)
-            grouped[
-                (
-                    detection.satellite,
-                    detection.observed_at,
-                    detection.scene_id,
-                    str(detection.source_file),
-                )
-            ].append(detection)
-
-        features: list[dict[str, Any]] = []
-        for detections in grouped.values():
-            settings = _SATELLITE_CLUSTER_SETTINGS.get(detections[0].satellite)
-            if settings is None:
-                continue
-            clusters = cluster_detections(
-                detections,
-                resolution_meters=settings.resolution_meters,
-                neighbor_multiplier=settings.neighbor_multiplier,
-                projection=cluster_projection,
-            )
-            features.extend(
-                _cluster_feature(cluster, cluster_projection=cluster_projection)
-                for cluster in clusters
-            )
-
-        features.sort(
-            key=lambda feature: (
-                str(feature["properties"].get("observed_at") or ""),
-                str(feature["properties"].get("satellite") or ""),
-                str(feature["id"]),
-            ),
-            reverse=True,
-        )
-        if limit is None:
-            return features
-        return features[: min(max(limit, 1), 5000)]
-
-    def _filtered_pixel_rows(
-        self,
-        *,
-        satellites: Sequence[str],
-        observed_from: datetime | None,
-        observed_to: datetime | None,
-        min_confidence: int | None,
-        province: str | None,
-        kabupaten: str | None,
-        kecamatan: str | None,
-        bbox: tuple[float, float, float, float] | None,
-    ):
-        query = """
-            SELECT
-                hid,
-                satellite,
-                ST_Y(coordinate::geometry) AS latitude,
-                ST_X(coordinate::geometry) AS longitude,
-                conf_lvl,
-                provinsi,
-                kabupaten,
-                kecamatan,
-                radius,
-                source_station,
-                observed_at,
-                source_file,
-                scene_id
-            FROM hotspot_pixel
-        """
-        where, params = _hotspot_filters(
-            satellites=satellites,
-            observed_from=observed_from,
-            observed_to=observed_to,
-            min_confidence=min_confidence,
-            province=province,
-            kabupaten=kabupaten,
-            kecamatan=kecamatan,
-            bbox=bbox,
-        )
-        if where:
-            query += " WHERE " + " AND ".join(where)
-        query += " ORDER BY observed_at DESC, hid DESC;"
-        with psycopg.connect(self._database.dsn, connect_timeout=5) as connection:
-            with connection.cursor() as cursor:
-                cursor.execute(query, params)
-                return cursor.fetchall()
-
-
 def _hotspot_filters(
     *,
     satellites: Sequence[str],
@@ -689,6 +479,7 @@ def _hotspot_filters(
     kabupaten: str | None,
     kecamatan: str | None,
     bbox: tuple[float, float, float, float] | None,
+    cluster_projection: ClusteringProjection | None = None,
 ) -> tuple[list[str], list[Any]]:
     where: list[str] = []
     params: list[Any] = []
@@ -704,6 +495,9 @@ def _hotspot_filters(
     if min_confidence is not None:
         where.append("conf_lvl >= %s")
         params.append(min_confidence)
+    if cluster_projection is not None:
+        where.append("cluster_projection = %s")
+        params.append(cluster_projection)
     for column, value in (
         ("provinsi", province),
         ("kabupaten", kabupaten),
@@ -754,85 +548,3 @@ def _hotspot_feature(*, kind: HotspotKind, id_column: str, row) -> dict[str, Any
             "scene_id": scene_id,
         },
     }
-
-
-def _detection_from_pixel_row(row) -> HotspotDetection:
-    (
-        _identifier,
-        satellite,
-        latitude,
-        longitude,
-        confidence,
-        province,
-        kabupaten,
-        kecamatan,
-        _radius,
-        source_station,
-        observed_at,
-        source_file,
-        scene_id,
-    ) = row
-    location = (
-        AdminLocation(kecamatan=kecamatan, kabupaten=kabupaten, provinsi=province)
-        if province and kabupaten and kecamatan
-        else None
-    )
-    return HotspotDetection(
-        latitude=latitude,
-        longitude=longitude,
-        confidence=confidence,
-        observed_at=observed_at,
-        satellite=satellite,
-        source_file=Path(source_file or ""),
-        scene_id=scene_id or "",
-        source_station=source_station or "",
-        location=location,
-    )
-
-
-def _cluster_feature(cluster, *, cluster_projection: ClusteringProjection) -> dict[str, Any]:
-    detection = cluster.detections[0]
-    location = detection.location
-    return {
-        "type": "Feature",
-        "id": (
-            f"cluster-{cluster_projection}-{detection.satellite}-"
-            f"{detection.observed_at.isoformat()}-{cluster.latitude:.6f}-{cluster.longitude:.6f}"
-        ),
-        "geometry": {"type": "Point", "coordinates": [cluster.longitude, cluster.latitude]},
-        "properties": {
-            "kind": "cluster",
-            "satellite": detection.satellite,
-            "confidence": cluster.confidence,
-            "province": location.provinsi if location else None,
-            "kabupaten": location.kabupaten if location else None,
-            "kecamatan": location.kecamatan if location else None,
-            "radius_meters": cluster.radius_meters,
-            "source_station": detection.source_station,
-            "observed_at": detection.observed_at.isoformat(),
-            "source_file": str(detection.source_file),
-            "scene_id": detection.scene_id,
-            "cluster_projection": cluster_projection,
-            "pixel_count": len(cluster.detections),
-        },
-    }
-
-
-def _group_cluster_statistics(
-    features: Sequence[dict[str, Any]],
-    level: Literal["province", "kabupaten", "kecamatan", "satellite"],
-) -> dict[str, dict[str, int]]:
-    grouped: dict[str, dict[str, int]] = {}
-    label_key = {
-        "province": "province",
-        "kabupaten": "kabupaten",
-        "kecamatan": "kecamatan",
-        "satellite": "satellite",
-    }[level]
-    for feature in features:
-        properties = feature["properties"]
-        satellite = str(properties.get("satellite") or "Unknown")
-        label = str(properties.get(label_key) or "Unknown")
-        satellite_counts = grouped.setdefault(label, {})
-        satellite_counts[satellite] = satellite_counts.get(satellite, 0) + 1
-    return grouped

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import datetime
 from pathlib import Path
 from uuid import UUID
@@ -7,7 +8,19 @@ from uuid import UUID
 import psycopg
 
 from brin_hotspot.config import DatabaseSettings
-from brin_hotspot.domain import HotspotCluster, HotspotDetection
+from brin_hotspot.domain import AdminLocation, HotspotCluster, HotspotDetection
+from brin_hotspot.ingestion.clustering import ClusteringProjection, cluster_detections
+from brin_hotspot.satellites.landsat8 import LANDSAT8_SETTINGS
+from brin_hotspot.satellites.modis import AQUA_SETTINGS, TERA_SETTINGS
+from brin_hotspot.satellites.snpp import NOAA20_SETTINGS, SNPP_SETTINGS
+
+_SATELLITE_CLUSTER_SETTINGS = {
+    "snpp": SNPP_SETTINGS,
+    "noaa20": NOAA20_SETTINGS,
+    "aqua": AQUA_SETTINGS,
+    "tera": TERA_SETTINGS,
+    "landsat8": LANDSAT8_SETTINGS,
+}
 
 
 class HotspotRepository:
@@ -50,6 +63,7 @@ class HotspotRepository:
         source_files: tuple[Path, ...],
         source_key: str | None = None,
         clusters: list[HotspotCluster],
+        cluster_variants: Mapping[ClusteringProjection, list[HotspotCluster]] | None = None,
         pixel_radius_meters: int,
         source_metadata: dict[Path, tuple[str, datetime]] | None = None,
         finish_run: bool = True,
@@ -62,6 +76,8 @@ class HotspotRepository:
 
         metadata = _source_metadata(clusters)
         metadata.update(source_metadata or {})
+        variants = cluster_variants or {"latitude_adjusted": clusters}
+        default_clusters = variants.get("latitude_adjusted", clusters)
         with psycopg.connect(self._database.dsn, connect_timeout=5) as connection:
             with connection.transaction():
                 with connection.cursor() as cursor:
@@ -69,8 +85,22 @@ class HotspotRepository:
                     cluster_count = 0
                     pixel_count = 0
 
-                    for cluster in clusters:
-                        cluster_id = self._insert_cluster(cursor, cluster)
+                    for projection, projection_clusters in variants.items():
+                        if projection == "latitude_adjusted":
+                            continue
+                        for cluster in projection_clusters:
+                            self._insert_cluster(
+                                cursor,
+                                cluster,
+                                cluster_projection=projection,
+                            )
+
+                    for cluster in default_clusters:
+                        cluster_id = self._insert_cluster(
+                            cursor,
+                            cluster,
+                            cluster_projection="latitude_adjusted",
+                        )
                         cluster_count += 1
                         for detection in cluster.detections:
                             self._insert_pixel(
@@ -219,6 +249,89 @@ class HotspotRepository:
                     self._start_run(cursor, run_id, satellite, ())
                     self._finish_run(cursor, run_id, "failed", message)
 
+    def materialize_cluster_projection(
+        self,
+        *,
+        cluster_projection: ClusteringProjection,
+        satellites: tuple[str, ...] = (),
+        observed_from: datetime | None = None,
+        observed_to: datetime | None = None,
+        min_confidence: int | None = None,
+    ) -> int:
+        """Build stored cluster rows for an existing pixel archive."""
+
+        where: list[str] = []
+        params: list[object] = []
+        if satellites:
+            where.append("satellite = ANY(%s)")
+            params.append(list(satellites))
+        if observed_from:
+            where.append("observed_at >= %s")
+            params.append(observed_from)
+        if observed_to:
+            where.append("observed_at <= %s")
+            params.append(observed_to)
+        if min_confidence is not None:
+            where.append("conf_lvl >= %s")
+            params.append(min_confidence)
+
+        query = """
+            SELECT satellite,
+                   ST_Y(coordinate::geometry) AS latitude,
+                   ST_X(coordinate::geometry) AS longitude,
+                   conf_lvl,
+                   provinsi,
+                   kabupaten,
+                   kecamatan,
+                   source_station,
+                   observed_at,
+                   source_file,
+                   scene_id
+            FROM hotspot_pixel
+        """
+        if where:
+            query += " WHERE " + " AND ".join(where)
+        query += " ORDER BY satellite, observed_at, scene_id, source_file, hid;"
+
+        with psycopg.connect(self._database.dsn, connect_timeout=5) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(query, params)
+                rows = cursor.fetchall()
+
+        grouped: dict[tuple[str, datetime, str, str], list[HotspotDetection]] = {}
+        for row in rows:
+            detection = _detection_from_pixel_row(row)
+            key = (
+                detection.satellite,
+                detection.observed_at,
+                detection.scene_id,
+                str(detection.source_file),
+            )
+            grouped.setdefault(key, []).append(detection)
+
+        cluster_count = 0
+        with psycopg.connect(self._database.dsn, connect_timeout=5) as connection:
+            with connection.transaction():
+                with connection.cursor() as cursor:
+                    for detections in grouped.values():
+                        settings = _SATELLITE_CLUSTER_SETTINGS.get(detections[0].satellite)
+                        if settings is None:
+                            continue
+                        clusters = cluster_detections(
+                            detections,
+                            resolution_meters=settings.resolution_meters,
+                            neighbor_multiplier=settings.neighbor_multiplier,
+                            projection=cluster_projection,
+                        )
+                        for cluster in clusters:
+                            self._insert_cluster(
+                                cursor,
+                                cluster,
+                                cluster_projection=cluster_projection,
+                            )
+                            cluster_count += 1
+        return cluster_count
+
     @staticmethod
     def _start_run(
         cursor: psycopg.Cursor,
@@ -330,7 +443,12 @@ class HotspotRepository:
         return cursor.rowcount > 0
 
     @staticmethod
-    def _insert_cluster(cursor: psycopg.Cursor, cluster: HotspotCluster) -> int:
+    def _insert_cluster(
+        cursor: psycopg.Cursor,
+        cluster: HotspotCluster,
+        *,
+        cluster_projection: ClusteringProjection = "latitude_adjusted",
+    ) -> int:
         detection = cluster.detections[0]
         # Conflict handling makes replay idempotent while allowing enrichment
         # fields to improve after reference data is imported or corrected.
@@ -345,6 +463,7 @@ class HotspotRepository:
                     kabupaten,
                     kecamatan,
                     radius,
+                    cluster_projection,
                     source_station,
                     observed_at,
                     source_file,
@@ -361,9 +480,10 @@ class HotspotRepository:
                     %s,
                     %s,
                     %s,
+                    %s,
                     %s
                 )
-                ON CONFLICT (satellite, coordinate, observed_at) DO UPDATE
+                ON CONFLICT (satellite, coordinate, observed_at, cluster_projection) DO UPDATE
                 SET
                     conf_lvl = EXCLUDED.conf_lvl,
                     provinsi = COALESCE(EXCLUDED.provinsi, hotspot_cluster.provinsi),
@@ -382,6 +502,7 @@ class HotspotRepository:
             WHERE satellite = %s
               AND coordinate = ST_SetSRID(ST_MakePoint(%s, %s), 4326)::geography
               AND observed_at = %s
+              AND cluster_projection = %s
             LIMIT 1;
             """,
             (
@@ -393,6 +514,7 @@ class HotspotRepository:
                 detection.location.kabupaten if detection.location else None,
                 detection.location.kecamatan if detection.location else None,
                 cluster.radius_meters,
+                cluster_projection,
                 detection.source_station,
                 detection.observed_at,
                 str(detection.source_file),
@@ -401,6 +523,7 @@ class HotspotRepository:
                 cluster.longitude,
                 cluster.latitude,
                 detection.observed_at,
+                cluster_projection,
             ),
         )
         row = cursor.fetchone()
@@ -482,3 +605,35 @@ def _source_metadata(clusters: list[HotspotCluster]) -> dict[Path, tuple[str, da
         for detection in cluster.detections:
             metadata[detection.source_file] = (detection.scene_id, detection.observed_at)
     return metadata
+
+
+def _detection_from_pixel_row(row) -> HotspotDetection:
+    (
+        satellite,
+        latitude,
+        longitude,
+        confidence,
+        province,
+        kabupaten,
+        kecamatan,
+        source_station,
+        observed_at,
+        source_file,
+        scene_id,
+    ) = row
+    location = (
+        AdminLocation(kecamatan=kecamatan, kabupaten=kabupaten, provinsi=province)
+        if province and kabupaten and kecamatan
+        else None
+    )
+    return HotspotDetection(
+        latitude=latitude,
+        longitude=longitude,
+        confidence=confidence,
+        observed_at=observed_at,
+        satellite=satellite,
+        source_file=Path(source_file or ""),
+        scene_id=scene_id or "",
+        source_station=source_station or "",
+        location=location,
+    )

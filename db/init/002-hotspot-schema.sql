@@ -69,12 +69,13 @@ CREATE TABLE IF NOT EXISTS hotspot_cluster (
     kabupaten text,
     kecamatan text,
     radius integer,
+    cluster_projection text NOT NULL DEFAULT 'latitude_adjusted',
     source_station text,
     observed_at timestamp without time zone NOT NULL,
     source_file text,
     scene_id text,
     created_at timestamptz NOT NULL DEFAULT now(),
-    UNIQUE (satellite, coordinate, observed_at)
+    UNIQUE (satellite, coordinate, observed_at, cluster_projection)
 );
 
 CREATE TABLE IF NOT EXISTS hotspot_pixel (
@@ -98,6 +99,9 @@ CREATE TABLE IF NOT EXISTS hotspot_pixel (
 
 CREATE INDEX IF NOT EXISTS hotspot_cluster_coordinate_idx
     ON hotspot_cluster USING gist (coordinate);
+
+CREATE INDEX IF NOT EXISTS hotspot_cluster_projection_observed_at_idx
+    ON hotspot_cluster (cluster_projection, observed_at);
 
 CREATE INDEX IF NOT EXISTS hotspot_pixel_coordinate_idx
     ON hotspot_pixel USING gist (coordinate);
