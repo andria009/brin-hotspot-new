@@ -305,19 +305,19 @@ button {
   font-weight: 800;
 }
 
-.trend-values {
+.trend-summary {
   align-items: center;
   display: flex;
   flex-wrap: wrap;
   gap: 4px 10px;
 }
 
-.trend-values strong {
+.trend-summary strong {
   color: #142333;
   font-size: 12px;
 }
 
-.trend-values span {
+.trend-summary span {
   font-size: 11px;
   font-weight: 800;
 }
@@ -632,15 +632,44 @@ button {
   text-anchor: middle;
 }
 
-.trend-values {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 5px 10px;
+.trend-day-values {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
 }
 
-.trend-values span {
-  color: #6a7888;
+.trend-day {
+  background: #f8fafc;
+  border: 1px solid #e4ebf1;
+  border-radius: 8px;
+  display: grid;
+  gap: 5px;
+  padding: 7px 8px;
+}
+
+.trend-day strong {
+  align-items: baseline;
+  color: #142333;
+  display: flex;
   font-size: 11px;
+  gap: 6px;
+  justify-content: space-between;
+}
+
+.trend-day strong span {
+  color: #6a7888;
+  font-weight: 700;
+}
+
+.trend-day div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px 8px;
+}
+
+.trend-day div span {
+  font-size: 10px;
+  font-weight: 800;
 }
 
 .basemap-switch {

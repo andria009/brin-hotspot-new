@@ -870,7 +870,7 @@ function TrendPanel({
         <strong>{kind}s per day</strong>
         <span>selected satellites and total</span>
       </div>
-      <div className="trend-values">
+      <div className="trend-summary">
         <strong>{formatCount(items.reduce((sum, item) => sum + item.total, 0))} total</strong>
         {satelliteTotals.map((item) => (
           <span key={item.satellite} style={{ color: satelliteColor(item.satellite) }}>
@@ -922,12 +922,30 @@ function TrendPanel({
             <text className="axis-value" x="8" y="30">{formatCount(maxValue)}</text>
             <text className="axis-value" x="8" y="178">0</text>
           </svg>
-          <div className="trend-values">
-            {items.map((item) => (
-              <span key={item.date}>
-                {formatTrendDate(item.date)} {formatCount(item.total)}
-              </span>
-            ))}
+          <div className="trend-day-values">
+            {items.map((item) => {
+              const dailySatellites = satellites
+                .map((satellite) => ({
+                  satellite,
+                  total: item.satellites[satellite] ?? 0
+                }))
+                .filter((dailyItem) => dailyItem.total > 0);
+              return (
+                <div className="trend-day" key={item.date}>
+                  <strong>
+                    {formatTrendDate(item.date)}
+                    <span>{formatCount(item.total)} total</span>
+                  </strong>
+                  <div>
+                    {dailySatellites.map((dailyItem) => (
+                      <span key={dailyItem.satellite} style={{ color: satelliteColor(dailyItem.satellite) }}>
+                        {satelliteLabel(dailyItem.satellite)} {formatCount(dailyItem.total)}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </>
       )}
