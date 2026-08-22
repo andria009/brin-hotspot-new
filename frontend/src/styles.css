@@ -309,6 +309,13 @@ button {
   gap: 14px;
 }
 
+.control-group {
+  color: #526173;
+  display: grid;
+  font-size: 13px;
+  gap: 7px;
+}
+
 .segmented {
   background: #eef3f7;
   border-radius: 8px;
@@ -330,6 +337,10 @@ button {
   background: white;
   color: #142333;
   font-weight: 800;
+}
+
+.projection-switch {
+  grid-template-columns: 1fr 1fr;
 }
 
 .range-label {

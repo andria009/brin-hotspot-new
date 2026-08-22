@@ -8,6 +8,7 @@ import {
   mockTrend
 } from "./mockData";
 import type {
+  ClusterProjection,
   HotspotCollection,
   HotspotKind,
   HotspotStatistics,
@@ -24,6 +25,7 @@ const API_BASE = import.meta.env.VITE_HOTSPOT_API_BASE ?? "/api/v1";
 
 export type HotspotFilters = {
   kind: HotspotKind;
+  clusterProjection: ClusterProjection;
   satellites: string[];
   minConfidence: number;
   observedFrom: string;
@@ -43,15 +45,27 @@ export async function getHotspots(filters: HotspotFilters): Promise<HotspotColle
   if (filters.satellites.length === 0) {
     return { type: "FeatureCollection", total: 0, features: [] };
   }
-  const params = new URLSearchParams({
-    kind: filters.kind,
-    min_confidence: String(filters.minConfidence),
-    limit: "2000"
-  });
-  filters.satellites.forEach((satellite) => params.append("satellite", satellite));
-  appendIfPresent(params, "observed_from", toApiDateTime(filters.observedFrom));
-  appendIfPresent(params, "observed_to", toApiDateTime(filters.observedTo, true));
+  const params = hotspotParams(filters);
+  appendLocationFilters(params, filters);
   return getJson(`/hotspots?${params.toString()}`, mockHotspots);
+}
+
+export async function getHotspotTotal(
+  filters: HotspotFilters,
+  kind: HotspotKind
+): Promise<number> {
+  if (filters.satellites.length === 0) {
+    return 0;
+  }
+  const params = hotspotParams({ ...filters, kind });
+  appendLocationFilters(params, filters);
+  params.set("limit", "1");
+  const collection = await getJson(`/hotspots?${params.toString()}`, {
+    type: "FeatureCollection",
+    total: 0,
+    features: []
+  } satisfies HotspotCollection);
+  return collection.total ?? collection.features.length;
 }
 
 export async function getStatistics(filters: HotspotFilters): Promise<HotspotStatistics> {
@@ -61,9 +75,7 @@ export async function getStatistics(filters: HotspotFilters): Promise<HotspotSta
     return { level: statisticLevel(filters), items: [] };
   }
   const params = hotspotParams(filters);
-  appendIfPresent(params, "province", filters.province);
-  appendIfPresent(params, "kabupaten", filters.kabupaten);
-  appendIfPresent(params, "kecamatan", filters.kecamatan);
+  appendLocationFilters(params, filters);
   params.set("limit", "20");
   return getJson(`/statistics?${params.toString()}`, mockStatistics);
 }
@@ -73,9 +85,7 @@ export async function getTrend(filters: HotspotFilters): Promise<HotspotTrend> {
     return { items: [] };
   }
   const params = hotspotParams(filters);
-  appendIfPresent(params, "province", filters.province);
-  appendIfPresent(params, "kabupaten", filters.kabupaten);
-  appendIfPresent(params, "kecamatan", filters.kecamatan);
+  appendLocationFilters(params, filters);
   params.delete("limit");
   return getJson(`/trend?${params.toString()}`, mockTrend);
 }
@@ -88,12 +98,19 @@ function hotspotParams(filters: HotspotFilters) {
   const params = new URLSearchParams({
     kind: filters.kind,
     min_confidence: String(filters.minConfidence),
+    cluster_projection: filters.clusterProjection,
     limit: "2000"
   });
   filters.satellites.forEach((satellite) => params.append("satellite", satellite));
   appendIfPresent(params, "observed_from", toApiDateTime(filters.observedFrom));
   appendIfPresent(params, "observed_to", toApiDateTime(filters.observedTo, true));
   return params;
+}
+
+function appendLocationFilters(params: URLSearchParams, filters: HotspotFilters) {
+  appendIfPresent(params, "province", filters.province);
+  appendIfPresent(params, "kabupaten", filters.kabupaten);
+  appendIfPresent(params, "kecamatan", filters.kecamatan);
 }
 
 export async function getSources(): Promise<SourceFile[]> {

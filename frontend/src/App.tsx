@@ -18,6 +18,7 @@ import maplibregl from "maplibre-gl";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   getHotspots,
+  getHotspotTotal,
   getLocations,
   getRuns,
   getSources,
@@ -27,6 +28,7 @@ import {
 } from "./api";
 import hotspotIcon from "./assets/hotspot-icon.png";
 import type {
+  ClusterProjection,
   HotspotCollection,
   HotspotStatistics,
   HotspotTrend,
@@ -62,6 +64,7 @@ export default function App() {
   const [runs, setRuns] = useState<IngestionRun[]>([]);
   const [sources, setSources] = useState<SourceFile[]>([]);
   const [kind, setKind] = useState<HotspotKind>("cluster");
+  const [clusterProjection, setClusterProjection] = useState<ClusterProjection>("local");
   const [satellites, setSatellites] = useState<string[]>(["snpp", "noaa20", "aqua", "tera"]);
   const [minConfidence, setMinConfidence] = useState(7);
   const [observedFrom, setObservedFrom] = useState("");
@@ -84,15 +87,13 @@ export default function App() {
     sources: true
   });
   const [basemap, setBasemap] = useState<Basemap>("street");
+  const [currentCounts, setCurrentCounts] = useState({ clusters: 0, pixels: 0 });
 
-  // Header metrics come from the operational summary, not the current map
-  // payload, so they reflect database totals by satellite.
+  // Latest comes from the operational summary; the count cards are refreshed
+  // from filtered API totals so they represent the current date/filters.
   const totals = useMemo(() => {
     const satellitesSummary = summary?.satellites ?? [];
     return {
-      clusters: satellitesSummary.reduce((sum, item) => sum + item.clusters, 0),
-      pixels: satellitesSummary.reduce((sum, item) => sum + item.pixels, 0),
-      enriched: satellitesSummary.reduce((sum, item) => sum + item.enriched_pixels, 0),
       latest: satellitesSummary
         .map((item) => item.latest_observed_at)
         .filter(Boolean)
@@ -194,6 +195,7 @@ export default function App() {
     void refresh();
   }, [
     kind,
+    clusterProjection,
     satellites,
     minConfidence,
     observedFrom,
@@ -216,7 +218,7 @@ export default function App() {
 
   useEffect(() => {
     updateMapRegionHighlight();
-  }, [province, kecamatan]);
+  }, [province, kabupaten, kecamatan]);
 
   useEffect(() => {
     updateBasemap();
@@ -229,6 +231,7 @@ export default function App() {
   async function refresh() {
     const filters = {
       kind,
+      clusterProjection,
       satellites,
       minConfidence,
       observedFrom,
@@ -237,9 +240,29 @@ export default function App() {
       kabupaten,
       kecamatan
     };
-    const [summaryData, hotspotData, statisticData, trendData, runData, sourceData] = await Promise.all([
+    const hotspotRequest = getHotspots(filters);
+    const clusterTotalRequest =
+      kind === "cluster"
+        ? hotspotRequest.then((collection) => collection.total ?? collection.features.length)
+        : getHotspotTotal(filters, "cluster");
+    const pixelTotalRequest =
+      kind === "pixel"
+        ? hotspotRequest.then((collection) => collection.total ?? collection.features.length)
+        : getHotspotTotal(filters, "pixel");
+    const [
+      summaryData,
+      hotspotData,
+      clusterTotal,
+      pixelTotal,
+      statisticData,
+      trendData,
+      runData,
+      sourceData
+    ] = await Promise.all([
       getSummary(),
-      getHotspots(filters),
+      hotspotRequest,
+      clusterTotalRequest,
+      pixelTotalRequest,
       getStatistics(filters),
       getTrend(filters),
       getRuns(),
@@ -257,6 +280,7 @@ export default function App() {
       }
     }
     setHotspots(hotspotData);
+    setCurrentCounts({ clusters: clusterTotal, pixels: pixelTotal });
     setStatistics(statisticData);
     setTrend(trendData);
     setRuns(runData);
@@ -355,8 +379,8 @@ export default function App() {
         {!sidebarCollapsed ? (
         <>
         <section className="panel metrics">
-          <Metric icon={<Layers size={18} />} label="Clusters" value={totals.clusters} />
-          <Metric icon={<Flame size={18} />} label="Pixels" value={totals.pixels} />
+          <Metric icon={<Layers size={18} />} label="Clusters" value={currentCounts.clusters} />
+          <Metric icon={<Flame size={18} />} label="Pixels" value={currentCounts.pixels} />
           <Metric
             className="metric-wide"
             icon={<Activity size={18} />}
@@ -373,6 +397,23 @@ export default function App() {
           <div className="segmented">
             <button className={kind === "cluster" ? "active" : ""} onClick={() => setKind("cluster")}>Cluster</button>
             <button className={kind === "pixel" ? "active" : ""} onClick={() => setKind("pixel")}>Pixel</button>
+          </div>
+          <div className="control-group">
+            <span>Clustering projection</span>
+            <div className="segmented projection-switch">
+              <button
+                className={clusterProjection === "local" ? "active" : ""}
+                onClick={() => setClusterProjection("local")}
+              >
+                Local
+              </button>
+              <button
+                className={clusterProjection === "epsg4087" ? "active" : ""}
+                onClick={() => setClusterProjection("epsg4087")}
+              >
+                EPSG:4087
+              </button>
+            </div>
           </div>
           <label className="range-label">
             <span className="range-label-header">

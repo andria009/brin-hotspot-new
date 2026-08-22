@@ -60,6 +60,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             Query(description="west,south,east,north"),
         ] = None,
         limit: Annotated[int, Query(ge=1, le=5000)] = 1000,
+        cluster_projection: Annotated[Literal["local", "epsg4087"], Query()] = "local",
     ) -> GeoJsonFeatureCollection:
         satellites = satellite or ()
         return GeoJsonFeatureCollection(
@@ -73,6 +74,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 kabupaten=kabupaten,
                 kecamatan=kecamatan,
                 bbox=bbox,
+                cluster_projection=cluster_projection,
             ),
             features=repository.hotspots(
                 kind=kind,
@@ -85,6 +87,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 kecamatan=kecamatan,
                 bbox=bbox,
                 limit=limit,
+                cluster_projection=cluster_projection,
             )
         )
 
@@ -100,6 +103,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         kabupaten: str | None = None,
         kecamatan: str | None = None,
         limit: Annotated[int, Query(ge=1, le=50)] = 20,
+        cluster_projection: Annotated[Literal["local", "epsg4087"], Query()] = "local",
     ) -> HotspotStatisticsResponse:
         return repository.statistics(
             kind=kind,
@@ -111,6 +115,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             kabupaten=kabupaten,
             kecamatan=kecamatan,
             limit=limit,
+            cluster_projection=cluster_projection,
         )
 
     @app.get("/api/v1/trend", response_model=HotspotTrendResponse)
@@ -124,6 +129,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         province: str | None = None,
         kabupaten: str | None = None,
         kecamatan: str | None = None,
+        cluster_projection: Annotated[Literal["local", "epsg4087"], Query()] = "local",
     ) -> HotspotTrendResponse:
         return repository.trend(
             kind=kind,
@@ -134,6 +140,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             province=province,
             kabupaten=kabupaten,
             kecamatan=kecamatan,
+            cluster_projection=cluster_projection,
         )
 
     @app.get("/api/v1/runs", response_model=list[IngestionRunResponse])
