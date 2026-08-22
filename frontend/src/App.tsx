@@ -510,7 +510,7 @@ export default function App() {
                 onClick={() => toggleSatellite(satellite)}
               >
                 <Satellite size={15} />
-                {satellite.toUpperCase()}
+                {satelliteLabel(satellite)}
               </button>
             ))}
           </div>
@@ -572,7 +572,7 @@ export default function App() {
               <div className="collapsible-content">
                 {sourceStatusRows.map((status) => (
                   <div className="status-row" key={`${status.satellite}-${status.status}`}>
-                    <span>{status.satellite.toUpperCase()} · {status.status}</span>
+                    <span>{satelliteLabel(status.satellite)} · {status.status}</span>
                     <strong>{status.count}</strong>
                   </div>
                 ))}
@@ -589,7 +589,7 @@ export default function App() {
                 {latestRunsBySatellite.map((run) => (
                   <Row
                     key={run.id}
-                    title={`${run.satellite.toUpperCase()} ${run.status}`}
+                    title={`${satelliteLabel(run.satellite)} ${run.status}`}
                     meta={formatDate(run.started_at)}
                   />
                 ))}
@@ -605,7 +605,7 @@ export default function App() {
               <div className="collapsible-content">
                 {latestSourcesBySatellite.map(([satellite, satelliteSources]) => (
                   <div className="satellite-group" key={satellite}>
-                    <div className="group-title">{satellite.toUpperCase()}</div>
+                    <div className="group-title">{satelliteLabel(satellite)}</div>
                     {satelliteSources.map((source) => (
                       <Row
                         key={`${source.satellite}-${source.path}`}
@@ -779,7 +779,7 @@ function StatisticsPanel({
         {satellites.map((satellite) => (
           <span key={satellite}>
             <i style={{ background: satelliteColor(satellite) }} />
-            {satellite.toUpperCase()}
+            {satelliteLabel(satellite)}
           </span>
         ))}
       </div>
@@ -801,7 +801,7 @@ function StatisticsPanel({
                   return (
                     <span
                       key={satellite}
-                      title={`${satellite.toUpperCase()}: ${formatCount(value)}`}
+                      title={`${satelliteLabel(satellite)}: ${formatCount(value)}`}
                       style={{
                         background: satelliteColor(satellite),
                         width: `${(value / item.total) * 100}%`
@@ -815,8 +815,8 @@ function StatisticsPanel({
               {satellites
                 .filter((satellite) => (item.satellites[satellite] ?? 0) > 0)
                 .map((satellite) => (
-                  <span key={satellite}>
-                    {satellite.toUpperCase()} {formatCount(item.satellites[satellite])}
+                  <span key={satellite} style={{ color: satelliteColor(satellite) }}>
+                    {satelliteLabel(satellite)} {formatCount(item.satellites[satellite])}
                   </span>
                 ))}
             </div>
@@ -837,12 +837,18 @@ function TrendPanel({
   satellites: string[];
 }) {
   const items = trend?.items ?? [];
+  const satelliteTotals = satellites
+    .map((satellite) => ({
+      satellite,
+      total: items.reduce((sum, item) => sum + (item.satellites[satellite] ?? 0), 0)
+    }))
+    .filter((item) => item.total > 0);
   // The backend returns satellite counts by day; the frontend adds the total
   // series so operators can compare individual feeds with aggregate activity.
   const series = [
     ...satellites.map((satellite) => ({
       key: satellite,
-      label: satellite.toUpperCase(),
+      label: satelliteLabel(satellite),
       color: satelliteColor(satellite),
       values: items.map((item) => item.satellites[satellite] ?? 0)
     })),
@@ -863,6 +869,14 @@ function TrendPanel({
       <div className="chart-context">
         <strong>{kind}s per day</strong>
         <span>selected satellites and total</span>
+      </div>
+      <div className="trend-values">
+        <strong>{formatCount(items.reduce((sum, item) => sum + item.total, 0))} total</strong>
+        {satelliteTotals.map((item) => (
+          <span key={item.satellite} style={{ color: satelliteColor(item.satellite) }}>
+            {satelliteLabel(item.satellite)} {formatCount(item.total)}
+          </span>
+        ))}
       </div>
       <div className="chart-legend">
         {series.map((item) => (
@@ -971,6 +985,10 @@ function satelliteColor(satellite: string) {
   return SATELLITE_COLORS[satellite] ?? "#627184";
 }
 
+function satelliteLabel(satellite: string) {
+  return satellite.toLowerCase() === "tera" ? "TERRA" : satellite.toUpperCase();
+}
+
 function linePoints(values: number[], maxValue: number) {
   if (values.length === 0) {
     return "";
@@ -1009,7 +1027,7 @@ function FeatureInspector({ feature, onClose }: { feature: GeoJSON.Feature; onCl
   return (
     <div className="inspector">
       <button onClick={onClose} aria-label="Close">×</button>
-      <h2>{String(props.satellite ?? "").toUpperCase()} hotspot</h2>
+      <h2>{satelliteLabel(String(props.satellite ?? ""))} hotspot</h2>
       <dl>
         <dt>Coordinates</dt><dd>{formatCoordinates(coordinates)}</dd>
         <dt>Confidence</dt><dd>{String(props.confidence ?? "-")}</dd>
