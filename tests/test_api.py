@@ -174,6 +174,7 @@ def test_hotspots_accepts_time_and_region_filters():
             "observed_to": "2026-04-24T23:59:59",
             "province": "Riau",
             "kecamatan": "Menteng",
+            "bbox": ["90", "-10", "150", "10"],
         },
     )
 
@@ -182,3 +183,4 @@ def test_hotspots_accepts_time_and_region_filters():
     assert repository.hotspot_kwargs["observed_to"].isoformat() == "2026-04-24T23:59:59"
     assert repository.hotspot_kwargs["province"] == "Riau"
     assert repository.hotspot_kwargs["kecamatan"] == "Menteng"
+    assert repository.hotspot_kwargs["bbox"] == (90.0, -10.0, 150.0, 10.0)

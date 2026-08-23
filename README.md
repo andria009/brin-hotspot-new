@@ -606,7 +606,7 @@ The hotspot endpoint supports these read-only filters:
 - `observed_from` and `observed_to`
 - `min_confidence`
 - `province`, `kabupaten`, and `kecamatan`
-- `bbox=west,south,east,north`
+- repeated `bbox` values as `bbox=west&bbox=south&bbox=east&bbox=north`
 - optional `limit` for clients that intentionally want a smaller response
 
 `/api/v1/statistics` returns grouped hotspot counts for stacked bar charts. It uses the same hotspot filters and automatically chooses the grouping level:

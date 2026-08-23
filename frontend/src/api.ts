@@ -35,11 +35,16 @@ export type HotspotFilters = {
   kecamatan: string;
 };
 
+export type HotspotBbox = [number, number, number, number];
+
 export async function getSummary(): Promise<OperationalSummary> {
   return getJson("/summary", mockSummary);
 }
 
-export async function getHotspots(filters: HotspotFilters): Promise<HotspotCollection> {
+export async function getHotspots(
+  filters: HotspotFilters,
+  bbox?: HotspotBbox | null
+): Promise<HotspotCollection> {
   // Avoid an unnecessary API call when the UI state intentionally hides all
   // satellites. The rest of the dashboard can then render an empty map cleanly.
   if (filters.satellites.length === 0) {
@@ -47,6 +52,7 @@ export async function getHotspots(filters: HotspotFilters): Promise<HotspotColle
   }
   const params = hotspotParams(filters);
   appendLocationFilters(params, filters);
+  appendBbox(params, bbox);
   return getJson(`/hotspots?${params.toString()}`, mockHotspots);
 }
 
@@ -110,6 +116,13 @@ function appendLocationFilters(params: URLSearchParams, filters: HotspotFilters)
   appendIfPresent(params, "province", filters.province);
   appendIfPresent(params, "kabupaten", filters.kabupaten);
   appendIfPresent(params, "kecamatan", filters.kecamatan);
+}
+
+function appendBbox(params: URLSearchParams, bbox?: HotspotBbox | null) {
+  if (!bbox) {
+    return;
+  }
+  bbox.forEach((value) => params.append("bbox", value.toFixed(6)));
 }
 
 export async function getSources(): Promise<SourceFile[]> {

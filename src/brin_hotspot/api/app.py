@@ -57,7 +57,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         kecamatan: str | None = None,
         bbox: Annotated[
             tuple[float, float, float, float] | None,
-            Query(description="west,south,east,north"),
+            Query(description="Repeated west,south,east,north values."),
         ] = None,
         limit: Annotated[
             int | None,

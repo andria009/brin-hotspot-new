@@ -24,7 +24,9 @@ import {
   getSources,
   getStatistics,
   getSummary,
-  getTrend
+  getTrend,
+  type HotspotBbox,
+  type HotspotFilters
 } from "./api";
 import hotspotIcon from "./assets/hotspot-icon.png";
 import type {
@@ -57,6 +59,9 @@ export default function App() {
   const mapRef = useRef<maplibregl.Map | null>(null);
   const mapNodeRef = useRef<HTMLDivElement | null>(null);
   const defaultDateInitializedRef = useRef(false);
+  const viewportRefreshTimeoutRef = useRef<number | null>(null);
+  const latestHotspotRequestRef = useRef(0);
+  const filtersRef = useRef<HotspotFilters | null>(null);
   const [summary, setSummary] = useState<OperationalSummary | null>(null);
   const [hotspots, setHotspots] = useState<HotspotCollection | null>(null);
   const [statistics, setStatistics] = useState<HotspotStatistics | null>(null);
@@ -88,6 +93,30 @@ export default function App() {
   });
   const [basemap, setBasemap] = useState<Basemap>("street");
   const [currentCounts, setCurrentCounts] = useState({ clusters: 0, pixels: 0 });
+  const activeFilters = useMemo<HotspotFilters>(
+    () => ({
+      kind,
+      clusterProjection,
+      satellites,
+      minConfidence,
+      observedFrom,
+      observedTo,
+      province,
+      kabupaten,
+      kecamatan
+    }),
+    [
+      kind,
+      clusterProjection,
+      satellites,
+      minConfidence,
+      observedFrom,
+      observedTo,
+      province,
+      kabupaten,
+      kecamatan
+    ]
+  );
 
   // Latest comes from the operational summary; the count cards are refreshed
   // from filtered API totals so they represent the current date/filters.
@@ -112,8 +141,8 @@ export default function App() {
         : [{ satellite, status: "no sources", count: 0 }];
     });
   }, [summary]);
-  // Prefer the API total so the toolbar reflects the full filtered result even
-  // when the returned GeoJSON feature list is capped.
+  // The map request is bbox-aware, so this count reflects the current viewport
+  // while the metric cards below keep the full filtered totals.
   const visibleCount = hotspots?.total ?? hotspots?.features.length ?? 0;
 
   useEffect(() => {
@@ -184,8 +213,12 @@ export default function App() {
       mapRef.current?.on("mouseleave", "hotspot-points", () => {
         mapRef.current!.getCanvas().style.cursor = "";
       });
+      mapRef.current?.on("moveend", scheduleViewportHotspotRefresh);
     });
     return () => {
+      if (viewportRefreshTimeoutRef.current) {
+        window.clearTimeout(viewportRefreshTimeoutRef.current);
+      }
       mapRef.current?.remove();
       mapRef.current = null;
     };
@@ -193,17 +226,11 @@ export default function App() {
 
   useEffect(() => {
     void refresh();
-  }, [
-    kind,
-    clusterProjection,
-    satellites,
-    minConfidence,
-    observedFrom,
-    observedTo,
-    province,
-    kabupaten,
-    kecamatan
-  ]);
+  }, [activeFilters]);
+
+  useEffect(() => {
+    filtersRef.current = activeFilters;
+  }, [activeFilters]);
 
   useEffect(() => {
     void refreshLocations(province, kabupaten);
@@ -229,26 +256,9 @@ export default function App() {
   }, [sidebarCollapsed, rightRailOpen, bottomRailOpen]);
 
   async function refresh() {
-    const filters = {
-      kind,
-      clusterProjection,
-      satellites,
-      minConfidence,
-      observedFrom,
-      observedTo,
-      province,
-      kabupaten,
-      kecamatan
-    };
-    const hotspotRequest = getHotspots(filters);
-    const clusterTotalRequest =
-      kind === "cluster"
-        ? hotspotRequest.then((collection) => collection.total ?? collection.features.length)
-        : getHotspotTotal(filters, "cluster");
-    const pixelTotalRequest =
-      kind === "pixel"
-        ? hotspotRequest.then((collection) => collection.total ?? collection.features.length)
-        : getHotspotTotal(filters, "pixel");
+    const filters = activeFilters;
+    const hotspotRequestId = ++latestHotspotRequestRef.current;
+    const hotspotRequest = getHotspots(filters, currentMapBbox());
     const [
       summaryData,
       hotspotData,
@@ -261,8 +271,8 @@ export default function App() {
     ] = await Promise.all([
       getSummary(),
       hotspotRequest,
-      clusterTotalRequest,
-      pixelTotalRequest,
+      getHotspotTotal(filters, "cluster"),
+      getHotspotTotal(filters, "pixel"),
       getStatistics(filters),
       getTrend(filters),
       getRuns(),
@@ -279,7 +289,9 @@ export default function App() {
         setObservedTo(latestDate);
       }
     }
-    setHotspots(hotspotData);
+    if (hotspotRequestId === latestHotspotRequestRef.current) {
+      setHotspots(hotspotData);
+    }
     setCurrentCounts({ clusters: clusterTotal, pixels: pixelTotal });
     setStatistics(statisticData);
     setTrend(trendData);
@@ -289,6 +301,42 @@ export default function App() {
 
   async function refreshLocations(selectedProvince: string, selectedKabupaten: string) {
     setLocations(await getLocations(selectedProvince, selectedKabupaten));
+  }
+
+  async function refreshViewportHotspots() {
+    const hotspotRequestId = ++latestHotspotRequestRef.current;
+    const hotspotData = await getHotspots(currentFilters(), currentMapBbox());
+    if (hotspotRequestId === latestHotspotRequestRef.current) {
+      setHotspots(hotspotData);
+    }
+  }
+
+  function scheduleViewportHotspotRefresh() {
+    if (viewportRefreshTimeoutRef.current) {
+      window.clearTimeout(viewportRefreshTimeoutRef.current);
+    }
+    viewportRefreshTimeoutRef.current = window.setTimeout(() => {
+      void refreshViewportHotspots();
+    }, 250);
+  }
+
+  function currentFilters() {
+    return filtersRef.current ?? activeFilters;
+  }
+
+  function currentMapBbox(): HotspotBbox | null {
+    const bounds = mapRef.current?.getBounds();
+    if (!bounds) {
+      return null;
+    }
+    const west = clampLongitude(bounds.getWest());
+    const east = clampLongitude(bounds.getEast());
+    return [
+      Math.min(west, east),
+      clampLatitude(bounds.getSouth()),
+      Math.max(west, east),
+      clampLatitude(bounds.getNorth())
+    ];
   }
 
   function toggleSatellite(satellite: string) {
@@ -1005,6 +1053,14 @@ function satelliteColor(satellite: string) {
 
 function satelliteLabel(satellite: string) {
   return satellite.toLowerCase() === "tera" ? "TERRA" : satellite.toUpperCase();
+}
+
+function clampLatitude(value: number) {
+  return Math.max(-90, Math.min(90, value));
+}
+
+function clampLongitude(value: number) {
+  return Math.max(-180, Math.min(180, value));
 }
 
 function linePoints(values: number[], maxValue: number) {

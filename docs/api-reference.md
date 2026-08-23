@@ -85,7 +85,7 @@ Additional query parameters:
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `bbox` | `west,south,east,north` | Optional bounding box filter in EPSG:4326. |
+| `bbox` | repeated float | Optional bounding box filter in EPSG:4326, passed as `bbox=west&bbox=south&bbox=east&bbox=north`. |
 | `limit` | integer `1..100000` | Optional maximum returned features. Omit to return all matching hotspots. |
 
 Example:

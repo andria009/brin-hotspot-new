@@ -210,7 +210,7 @@ The chart uses the same filters as the map and statistics panel.
 
 ## GeoJSON Export
 
-The GeoJSON export button downloads the current `hotspots` payload from frontend state. The frontend requests all matching clusters or pixels for the active filters, so the export matches the visualized map data.
+The GeoJSON export button downloads the current `hotspots` payload from frontend state. The frontend requests matching clusters or pixels inside the current map viewport, so the export matches the visualized map data.
 
 ## Local Development
 
@@ -255,7 +255,7 @@ docker compose up --build db api frontend
 - Rebuild the frontend image after frontend code or asset changes.
 - Restart the frontend container after rebuilding if it is already running.
 - Keep API and frontend versions aligned because TypeScript types mirror API response schemas.
-- The frontend requests all matching hotspot features for map display. Keep date, satellite, confidence, and region filters practical for browser performance on very large result sets.
+- The frontend requests hotspot features with a bbox matching the current map viewport. The sidebar metric cards still use full filtered totals.
 - ESRI World Imagery is a basemap only. Actual source-scene overlays require future backend raster tile serving and frontend scene-layer controls.
 
 ## Verification
