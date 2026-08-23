@@ -98,8 +98,7 @@ function hotspotParams(filters: HotspotFilters) {
   const params = new URLSearchParams({
     kind: filters.kind,
     min_confidence: String(filters.minConfidence),
-    cluster_projection: filters.clusterProjection,
-    limit: "2000"
+    cluster_projection: filters.clusterProjection
   });
   filters.satellites.forEach((satellite) => params.append("satellite", satellite));
   appendIfPresent(params, "observed_from", toApiDateTime(filters.observedFrom));

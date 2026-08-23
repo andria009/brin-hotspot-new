@@ -86,18 +86,18 @@ Additional query parameters:
 | Parameter | Type | Description |
 | --- | --- | --- |
 | `bbox` | `west,south,east,north` | Optional bounding box filter in EPSG:4326. |
-| `limit` | integer `1..5000` | Maximum returned features. Default: `1000`. |
+| `limit` | integer `1..100000` | Optional maximum returned features. Omit to return all matching hotspots. |
 
 Example:
 
 ```bash
-curl "http://localhost:8000/api/v1/hotspots?kind=cluster&satellite=snpp&satellite=noaa20&min_confidence=7&limit=1000"
+curl "http://localhost:8000/api/v1/hotspots?kind=cluster&satellite=snpp&satellite=noaa20&min_confidence=7"
 ```
 
 Projection variant example:
 
 ```bash
-curl "http://localhost:8000/api/v1/hotspots?kind=cluster&cluster_projection=epsg4087&satellite=snpp&min_confidence=7&limit=1000"
+curl "http://localhost:8000/api/v1/hotspots?kind=cluster&cluster_projection=epsg4087&satellite=snpp&min_confidence=7"
 ```
 
 Filtered example:
@@ -139,7 +139,7 @@ Response:
 }
 ```
 
-`total` is the actual filtered count in the database. It may be greater than `features.length` because `limit` controls the returned payload size.
+`total` is the actual filtered count in the database. It differs from `features.length` only when the request includes `limit`.
 
 ## `GET /statistics`
 
@@ -279,6 +279,6 @@ Response:
 - Use repeated `satellite` query parameters for multi-satellite filters.
 - Use `/openapi.json` as the source of truth for client generation.
 - Treat API responses as read-only operational views.
-- Use `total` from `/hotspots` for visible-count UI; do not assume `features.length` is the complete filtered count.
+- Use `total` from `/hotspots` for visible-count UI; `features.length` is complete unless the request includes `limit`.
 - Use `/statistics` for grouped bar charts instead of grouping `/hotspots` client-side.
-- Use `/trend` for daily time-series charts instead of deriving time series from limited map features.
+- Use `/trend` for daily time-series charts instead of deriving time series from map features.

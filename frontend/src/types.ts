@@ -45,8 +45,8 @@ export type HotspotCollection = GeoJSON.FeatureCollection<
   GeoJSON.Point,
   HotspotFeature["properties"]
 > & {
-  // Actual filtered count in the API, which can be larger than features.length
-  // because map payloads are limited for browser performance.
+  // Actual filtered count in the API. It differs from features.length only when
+  // callers explicitly request a limited map payload.
   total?: number;
 };
 

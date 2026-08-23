@@ -105,7 +105,7 @@ class ReadOnlyHotspotRepository:
         kabupaten: str | None = None,
         kecamatan: str | None = None,
         bbox: tuple[float, float, float, float] | None = None,
-        limit: int = 1000,
+        limit: int | None = None,
         cluster_projection: ClusteringProjection = "latitude_adjusted",
     ) -> list[dict[str, Any]]:
         table = "hotspot_pixel" if kind == "pixel" else "hotspot_cluster"
@@ -140,8 +140,11 @@ class ReadOnlyHotspotRepository:
         )
         if where:
             query += " WHERE " + " AND ".join(where)
-        query += f" ORDER BY observed_at DESC, {id_column} DESC LIMIT %s;"
-        params.append(min(max(limit, 1), 5000))
+        query += f" ORDER BY observed_at DESC, {id_column} DESC"
+        if limit is not None:
+            query += " LIMIT %s"
+            params.append(min(max(limit, 1), 100000))
+        query += ";"
 
         with psycopg.connect(self._database.dsn, connect_timeout=5) as connection:
             with connection.cursor() as cursor:

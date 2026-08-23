@@ -59,7 +59,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             tuple[float, float, float, float] | None,
             Query(description="west,south,east,north"),
         ] = None,
-        limit: Annotated[int, Query(ge=1, le=5000)] = 1000,
+        limit: Annotated[
+            int | None,
+            Query(
+                ge=1,
+                le=100000,
+                description=(
+                    "Optional maximum returned features. "
+                    "Omit to return all matching hotspots."
+                ),
+            ),
+        ] = None,
         cluster_projection: Annotated[
             Literal["latitude_adjusted", "epsg4087"],
             Query(),

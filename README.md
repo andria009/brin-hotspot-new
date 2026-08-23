@@ -584,8 +584,8 @@ Useful API endpoints:
 curl http://localhost:8000/api/v1/health
 curl http://localhost:8000/api/v1/summary
 curl "http://localhost:8000/api/v1/locations?province=Riau&kabupaten=Pelalawan"
-curl "http://localhost:8000/api/v1/hotspots?kind=cluster&satellite=snpp&min_confidence=7&limit=1000"
-curl "http://localhost:8000/api/v1/hotspots?kind=cluster&cluster_projection=epsg4087&satellite=snpp&min_confidence=7&limit=1000"
+curl "http://localhost:8000/api/v1/hotspots?kind=cluster&satellite=snpp&min_confidence=7"
+curl "http://localhost:8000/api/v1/hotspots?kind=cluster&cluster_projection=epsg4087&satellite=snpp&min_confidence=7"
 curl "http://localhost:8000/api/v1/hotspots?kind=pixel&satellite=snpp&satellite=noaa20&observed_from=2026-04-24T00:00:00&observed_to=2026-04-24T23:59:59&province=Riau&kabupaten=Pelalawan&kecamatan=Menteng"
 curl "http://localhost:8000/api/v1/statistics?kind=cluster&satellite=snpp&satellite=noaa20&province=Riau"
 curl "http://localhost:8000/api/v1/trend?kind=cluster&satellite=snpp&satellite=noaa20&observed_from=2026-04-24T00:00:00&observed_to=2026-04-27T23:59:59"
@@ -595,8 +595,8 @@ curl "http://localhost:8000/api/v1/source-files?status=failed&limit=20"
 
 `/api/v1/hotspots` returns a GeoJSON `FeatureCollection` with:
 
-- `features`: the returned map features, bounded by the requested `limit` for browser and API payload safety.
-- `total`: the actual number of matching clusters or pixels after filters, which can be larger than the returned feature count.
+- `features`: all matching map features by default, or the bounded subset when a `limit` is requested.
+- `total`: the actual number of matching clusters or pixels after filters.
 
 The hotspot endpoint supports these read-only filters:
 
@@ -607,7 +607,7 @@ The hotspot endpoint supports these read-only filters:
 - `min_confidence`
 - `province`, `kabupaten`, and `kecamatan`
 - `bbox=west,south,east,north`
-- `limit`
+- optional `limit` for clients that intentionally want a smaller response
 
 `/api/v1/statistics` returns grouped hotspot counts for stacked bar charts. It uses the same hotspot filters and automatically chooses the grouping level:
 
