@@ -32,6 +32,7 @@ import hotspotIcon from "./assets/hotspot-icon.png";
 import type {
   ClusterProjection,
   HotspotCollection,
+  HotspotFeature,
   HotspotStatistics,
   HotspotTrend,
   HotspotKind,
@@ -52,6 +53,8 @@ const SATELLITE_COLORS: Record<string, string> = {
 // The confidence scale is discrete in the source data, but colors are interpolated
 // so the map and sidebar legend read as one continuous low-to-high risk ramp.
 const CONFIDENCE_VALUES = Array.from({ length: 10 }, (_, index) => index);
+const HOTSPOT_FILL_LAYER = "hotspot-footprints";
+const HOTSPOT_OUTLINE_LAYER = "hotspot-footprint-outlines";
 type Basemap = "street" | "satellite";
 type DetailSection = "status" | "runs" | "sources";
 
@@ -186,31 +189,39 @@ export default function App() {
     });
     mapRef.current.addControl(new maplibregl.NavigationControl({ showCompass: false }), "bottom-right");
     mapRef.current.on("load", () => {
-      // Hotspots are kept in one GeoJSON source and one circle layer; filters are
-      // applied by refetching data, while region selection is a paint update.
+      // Hotspots are kept in one GeoJSON source and rendered as square footprint
+      // polygons; filters are applied by refetching data, while region selection
+      // is a paint update.
       mapRef.current?.addSource("hotspots", {
         type: "geojson",
         data: { type: "FeatureCollection", features: [] }
       });
       mapRef.current?.addLayer({
-        id: "hotspot-points",
-        type: "circle",
+        id: HOTSPOT_FILL_LAYER,
+        type: "fill",
         source: "hotspots",
         paint: {
-          "circle-radius": ["interpolate", ["linear"], ["get", "confidence"], 7, 3, 9, 6.5],
-          "circle-color": confidenceColorExpression(),
-          "circle-stroke-color": "#ffffff",
-          "circle-stroke-width": 1.5,
-          "circle-opacity": 0.9
+          "fill-color": confidenceColorExpression(),
+          "fill-opacity": 0.86
         }
       });
-      mapRef.current?.on("click", "hotspot-points", (event) => {
+      mapRef.current?.addLayer({
+        id: HOTSPOT_OUTLINE_LAYER,
+        type: "line",
+        source: "hotspots",
+        paint: {
+          "line-color": "#ffffff",
+          "line-opacity": 0.82,
+          "line-width": 1
+        }
+      });
+      mapRef.current?.on("click", HOTSPOT_FILL_LAYER, (event) => {
         setSelected(event.features?.[0] ?? null);
       });
-      mapRef.current?.on("mouseenter", "hotspot-points", () => {
+      mapRef.current?.on("mouseenter", HOTSPOT_FILL_LAYER, () => {
         mapRef.current!.getCanvas().style.cursor = "pointer";
       });
-      mapRef.current?.on("mouseleave", "hotspot-points", () => {
+      mapRef.current?.on("mouseleave", HOTSPOT_FILL_LAYER, () => {
         mapRef.current!.getCanvas().style.cursor = "";
       });
       mapRef.current?.on("moveend", scheduleViewportHotspotRefresh);
@@ -239,9 +250,9 @@ export default function App() {
   useEffect(() => {
     const source = mapRef.current?.getSource("hotspots") as maplibregl.GeoJSONSource | undefined;
     if (source && hotspots) {
-      source.setData(hotspots);
+      source.setData(hotspotFootprints(hotspots, kind));
     }
-  }, [hotspots]);
+  }, [hotspots, kind]);
 
   useEffect(() => {
     updateMapRegionHighlight();
@@ -386,17 +397,17 @@ export default function App() {
 
   function updateMapRegionHighlight() {
     const map = mapRef.current;
-    if (!map?.getLayer("hotspot-points")) {
+    if (!map?.getLayer(HOTSPOT_FILL_LAYER)) {
       return;
     }
     map.setPaintProperty(
-      "hotspot-points",
-      "circle-color",
+      HOTSPOT_FILL_LAYER,
+      "fill-color",
       hotspotColorExpression(province, kabupaten, kecamatan)
     );
     map.setPaintProperty(
-      "hotspot-points",
-      "circle-opacity",
+      HOTSPOT_FILL_LAYER,
+      "fill-opacity",
       hotspotOpacityExpression(province, kabupaten, kecamatan)
     );
   }
@@ -1047,6 +1058,79 @@ function barWidth(total: number, maxTotal: number) {
   return Math.max((total / maxTotal) * 100, 3);
 }
 
+type HotspotFootprintProperties = HotspotFeature["properties"] & {
+  center_latitude: number;
+  center_longitude: number;
+};
+
+function hotspotFootprints(
+  collection: HotspotCollection,
+  kind: HotspotKind
+): GeoJSON.FeatureCollection<GeoJSON.Polygon, HotspotFootprintProperties> {
+  return {
+    type: "FeatureCollection",
+    features: collection.features.flatMap((feature) => {
+      const footprint = hotspotFootprint(feature, kind);
+      return footprint ? [footprint] : [];
+    })
+  };
+}
+
+function hotspotFootprint(
+  feature: HotspotFeature,
+  kind: HotspotKind
+): GeoJSON.Feature<GeoJSON.Polygon, HotspotFootprintProperties> | null {
+  if (feature.geometry.type !== "Point") {
+    return null;
+  }
+  const [longitude, latitude] = feature.geometry.coordinates;
+  const radiusMeters = feature.properties.radius_meters ?? (kind === "pixel" ? 1000 : 1500);
+  const halfSideMeters =
+    kind === "pixel" ? pixelHalfSideMeters(radiusMeters) : clusterHalfSideMeters(radiusMeters);
+  return {
+    type: "Feature",
+    id: feature.id,
+    properties: {
+      ...feature.properties,
+      center_latitude: latitude,
+      center_longitude: longitude
+    },
+    geometry: {
+      type: "Polygon",
+      coordinates: [squareCoordinates(longitude, latitude, halfSideMeters)]
+    }
+  };
+}
+
+function pixelHalfSideMeters(radiusMeters: number) {
+  return Math.max(radiusMeters / 3, 750);
+}
+
+function clusterHalfSideMeters(radiusMeters: number) {
+  return Math.max(radiusMeters, 1200);
+}
+
+function squareCoordinates(
+  longitude: number,
+  latitude: number,
+  halfSideMeters: number
+): GeoJSON.Position[] {
+  const latDelta = halfSideMeters / 111_320;
+  const lonScale = Math.max(Math.cos((latitude * Math.PI) / 180), 0.15);
+  const lonDelta = halfSideMeters / (111_320 * lonScale);
+  const west = longitude - lonDelta;
+  const east = longitude + lonDelta;
+  const south = latitude - latDelta;
+  const north = latitude + latDelta;
+  return [
+    [west, south],
+    [east, south],
+    [east, north],
+    [west, north],
+    [west, south]
+  ];
+}
+
 function satelliteColor(satellite: string) {
   return SATELLITE_COLORS[satellite] ?? "#627184";
 }
@@ -1116,6 +1200,13 @@ function FeatureInspector({ feature, onClose }: { feature: GeoJSON.Feature; onCl
 }
 
 function pointCoordinates(feature: GeoJSON.Feature) {
+  const props = feature.properties ?? {};
+  if (
+    typeof props.center_latitude === "number" &&
+    typeof props.center_longitude === "number"
+  ) {
+    return { latitude: props.center_latitude, longitude: props.center_longitude };
+  }
   if (!feature.geometry || feature.geometry.type !== "Point") {
     return null;
   }
