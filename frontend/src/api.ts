@@ -14,6 +14,7 @@ import type {
   HotspotStatistics,
   HotspotTrend,
   IngestionRun,
+  LocationBounds,
   LocationOptions,
   OperationalSummary,
   SourceFile
@@ -135,6 +136,19 @@ export async function getLocations(province = "", kabupaten = ""): Promise<Locat
   appendIfPresent(params, "kabupaten", kabupaten);
   const suffix = params.toString() ? `?${params.toString()}` : "";
   return getJson(`/locations${suffix}`, mockLocations);
+}
+
+export async function getLocationBounds(
+  province = "",
+  kabupaten = "",
+  kecamatan = ""
+): Promise<LocationBounds> {
+  const params = new URLSearchParams();
+  appendIfPresent(params, "province", province);
+  appendIfPresent(params, "kabupaten", kabupaten);
+  appendIfPresent(params, "kecamatan", kecamatan);
+  const suffix = params.toString() ? `?${params.toString()}` : "";
+  return getJson(`/location-bounds${suffix}`, { bbox: null });
 }
 
 async function getJson<T>(path: string, fallback: T): Promise<T> {

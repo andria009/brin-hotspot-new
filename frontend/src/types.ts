@@ -76,6 +76,10 @@ export type LocationOptions = {
   kecamatan: string[];
 };
 
+export type LocationBounds = {
+  bbox: [number, number, number, number] | null;
+};
+
 export type StatisticLevel = "province" | "kabupaten" | "kecamatan" | "satellite";
 
 export type StatisticItem = {

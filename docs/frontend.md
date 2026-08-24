@@ -122,13 +122,18 @@ Basemaps:
 | Street | OpenStreetMap raster tiles. |
 | Satellite | ESRI World Imagery raster tiles. |
 
-Hotspots are rendered as a single `circle` layer from a GeoJSON source named `hotspots`.
+Hotspots are rendered from a GeoJSON source named `hotspots` as square footprint polygons:
+
+- pixel mode uses colored square pixel footprints.
+- cluster mode uses larger square cluster footprints derived from cluster radius.
+- footprint size is zoom-aware, so low zooms use a minimum visible size while close zooms fall back to the actual source radius.
 
 Map interactions:
 
 - Clicking a hotspot opens the feature inspector.
 - Hovering over a hotspot changes the cursor.
 - Switching basemap toggles raster layer visibility.
+- Selecting province, kota/kabupaten, or kecamatan zooms the map to that administrative area.
 - Selecting province, kota/kabupaten, or kecamatan keeps matching hotspots colored and greys out non-selected hotspots.
 
 ## Hotspot Colors and Confidence Scale

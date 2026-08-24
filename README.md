@@ -638,8 +638,10 @@ Map and filter features:
 - date-only from/to filters
 - quick date presets for the last 24 hours and last 7 days, which update the from/to date fields
 - searchable province, kota/kabupaten, and kecamatan selection
+- automatic zoom to selected province, kota/kabupaten, or kecamatan
 - satellite toggles that show or hide matching hotspots on the map
 - selected-region highlighting with non-selected hotspots greyed out
+- zoom-aware square hotspot footprints for pixel and cluster visualization
 - stacked bar chart for hotspot counts by administrative level and selected satellites
 - daily trend line chart for hotspot counts by selected satellites plus total
 

@@ -274,6 +274,24 @@ Response:
 }
 ```
 
+## `GET /location-bounds`
+
+Returns an EPSG:4326 bounding box for the selected administrative area. The frontend uses this to zoom the map after province, kota/kabupaten, or kecamatan selection.
+
+Query parameters:
+
+| Parameter | Type | Description |
+| --- | --- | --- |
+| `province` | string | Selected province. |
+| `kabupaten` | string | Optional selected kota/kabupaten. |
+| `kecamatan` | string | Optional selected kecamatan. |
+
+Example:
+
+```bash
+curl "http://localhost:8000/api/v1/location-bounds?province=Riau&kabupaten=Pelalawan"
+```
+
 ## Developer Integration Notes
 
 - Use repeated `satellite` query parameters for multi-satellite filters.

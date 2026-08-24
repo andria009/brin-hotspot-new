@@ -14,6 +14,7 @@ from brin_hotspot.api.schemas import (
     HotspotStatisticsResponse,
     HotspotTrendResponse,
     IngestionRunResponse,
+    LocationBoundsResponse,
     LocationOptionsResponse,
     OperationalSummary,
     SourceFileResponse,
@@ -187,6 +188,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         kabupaten: str | None = None,
     ) -> LocationOptionsResponse:
         return repository.locations(province=province, kabupaten=kabupaten)
+
+    @app.get("/api/v1/location-bounds", response_model=LocationBoundsResponse)
+    def location_bounds(
+        repository: Annotated[ReadOnlyHotspotRepository, Depends(get_repository)],
+        province: str | None = None,
+        kabupaten: str | None = None,
+        kecamatan: str | None = None,
+    ) -> LocationBoundsResponse:
+        return repository.location_bounds(
+            province=province,
+            kabupaten=kabupaten,
+            kecamatan=kecamatan,
+        )
 
     return app
 

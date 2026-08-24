@@ -57,6 +57,10 @@ class LocationOptionsResponse(BaseModel):
     kecamatan: list[str] = Field(default_factory=list)
 
 
+class LocationBoundsResponse(BaseModel):
+    bbox: tuple[float, float, float, float] | None = None
+
+
 class StatisticItem(BaseModel):
     label: str
     total: int

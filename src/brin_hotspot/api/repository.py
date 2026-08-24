@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from collections.abc import Sequence
 from datetime import datetime
 from typing import Any, Literal
@@ -10,6 +11,7 @@ from brin_hotspot.api.schemas import (
     HotspotStatisticsResponse,
     HotspotTrendResponse,
     IngestionRunResponse,
+    LocationBoundsResponse,
     LocationOptionsResponse,
     OperationalSummary,
     SatelliteSummary,
@@ -471,6 +473,144 @@ class ReadOnlyHotspotRepository:
             kabupaten=kabupaten_options,
             kecamatan=kecamatan,
         )
+
+    def location_bounds(
+        self,
+        *,
+        province: str | None = None,
+        kabupaten: str | None = None,
+        kecamatan: str | None = None,
+    ) -> LocationBoundsResponse:
+        if not any((province, kabupaten, kecamatan)):
+            return LocationBoundsResponse()
+
+        with psycopg.connect(self._database.dsn, connect_timeout=5) as connection:
+            with connection.cursor() as cursor:
+                bbox = _reference_location_bounds(
+                    cursor,
+                    province=province,
+                    kabupaten=kabupaten,
+                    kecamatan=kecamatan,
+                )
+                if bbox is None:
+                    bbox = _hotspot_location_bounds(
+                        cursor,
+                        province=province,
+                        kabupaten=kabupaten,
+                        kecamatan=kecamatan,
+                    )
+        return LocationBoundsResponse(bbox=bbox)
+
+
+def _reference_location_bounds(
+    cursor: psycopg.Cursor,
+    *,
+    province: str | None,
+    kabupaten: str | None,
+    kecamatan: str | None,
+) -> tuple[float, float, float, float] | None:
+    if kecamatan:
+        cursor.execute(
+            """
+            SELECT ST_AsGeoJSON(ST_Envelope(ST_Collect(kec_ar.geom)))
+            FROM kec_ar
+            LEFT JOIN prov_ar ON prov_ar.gid = kec_ar.prov_id
+            LEFT JOIN kab_kota_ar ON kab_kota_ar.gid = kec_ar.kab_id
+            WHERE kec_ar.wa ILIKE %s
+              AND (%s::text IS NULL OR kab_kota_ar.wa ILIKE %s)
+              AND (%s::text IS NULL OR prov_ar.wa ILIKE %s);
+            """,
+            (kecamatan, kabupaten, kabupaten, province, province),
+        )
+        return _bbox_from_envelope_geojson(cursor.fetchone())
+
+    if kabupaten:
+        cursor.execute(
+            """
+            SELECT ST_AsGeoJSON(ST_Envelope(ST_Collect(kab_kota_ar.geom)))
+            FROM kab_kota_ar
+            LEFT JOIN prov_ar ON prov_ar.gid = kab_kota_ar.prov_id
+            WHERE kab_kota_ar.wa ILIKE %s
+              AND (%s::text IS NULL OR prov_ar.wa ILIKE %s);
+            """,
+            (kabupaten, province, province),
+        )
+        return _bbox_from_envelope_geojson(cursor.fetchone())
+
+    cursor.execute(
+        """
+        SELECT ST_AsGeoJSON(ST_Envelope(ST_Collect(geom)))
+        FROM prov_ar
+        WHERE wa ILIKE %s;
+        """,
+        (province,),
+    )
+    return _bbox_from_envelope_geojson(cursor.fetchone())
+
+
+def _hotspot_location_bounds(
+    cursor: psycopg.Cursor,
+    *,
+    province: str | None,
+    kabupaten: str | None,
+    kecamatan: str | None,
+) -> tuple[float, float, float, float] | None:
+    where, params = _hotspot_filters(
+        satellites=(),
+        observed_from=None,
+        observed_to=None,
+        min_confidence=None,
+        province=province,
+        kabupaten=kabupaten,
+        kecamatan=kecamatan,
+        bbox=None,
+        cluster_projection=None,
+    )
+    where_sql = " WHERE " + " AND ".join(where) if where else ""
+    cursor.execute(
+        f"""
+        WITH points AS (
+            SELECT coordinate::geometry AS geom FROM hotspot_pixel{where_sql}
+            UNION ALL
+            SELECT coordinate::geometry AS geom FROM hotspot_cluster{where_sql}
+        )
+        SELECT ST_AsGeoJSON(ST_Envelope(ST_Collect(geom)))
+        FROM points;
+        """,
+        [*params, *params],
+    )
+    return _bbox_from_envelope_geojson(cursor.fetchone())
+
+
+def _bbox_from_envelope_geojson(
+    row: tuple[str | None] | None,
+) -> tuple[float, float, float, float] | None:
+    if not row or not row[0]:
+        return None
+    geometry = json.loads(row[0])
+    coordinates = geometry.get("coordinates") or []
+    positions = _flatten_positions(coordinates)
+    if not positions:
+        return None
+    longitudes = [position[0] for position in positions]
+    latitudes = [position[1] for position in positions]
+    return min(longitudes), min(latitudes), max(longitudes), max(latitudes)
+
+
+def _flatten_positions(value: Any) -> list[list[float]]:
+    if (
+        isinstance(value, list)
+        and len(value) >= 2
+        and isinstance(value[0], int | float)
+        and isinstance(value[1], int | float)
+    ):
+        return [[float(value[0]), float(value[1])]]
+    positions: list[list[float]] = []
+    if isinstance(value, list):
+        for item in value:
+            positions.extend(_flatten_positions(item))
+    return positions
+
 
 def _hotspot_filters(
     *,

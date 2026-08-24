@@ -115,6 +115,9 @@ class FakeRepository:
             kecamatan=["WALENRANG TEST"] if kwargs["kabupaten"] else [],
         )
 
+    def location_bounds(self, **kwargs):
+        return {"bbox": (100.0, -2.0, 101.0, -1.0)}
+
 
 def test_api_exposes_read_only_hotspot_endpoints():
     repository = FakeRepository()
@@ -145,6 +148,9 @@ def test_api_exposes_read_only_hotspot_endpoints():
     assert locations["provinces"] == ["RIAU", "SULAWESI TEST"]
     assert locations["kabupaten"] == ["LUWU TEST"]
     assert locations["kecamatan"] == ["WALENRANG TEST"]
+
+    bounds = client.get("/api/v1/location-bounds?province=SULAWESI%20TEST").json()
+    assert bounds["bbox"] == [100.0, -2.0, 101.0, -1.0]
 
     statistics = client.get(
         "/api/v1/statistics?kind=cluster&satellite=snpp&satellite=noaa20&province=RIAU"

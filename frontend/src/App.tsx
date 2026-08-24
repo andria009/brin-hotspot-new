@@ -19,6 +19,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   getHotspots,
   getHotspotTotal,
+  getLocationBounds,
   getLocations,
   getRuns,
   getSources,
@@ -248,9 +249,13 @@ export default function App() {
   }, [province, kabupaten]);
 
   useEffect(() => {
+    void zoomToSelectedLocation();
+  }, [province, kabupaten, kecamatan]);
+
+  useEffect(() => {
     const source = mapRef.current?.getSource("hotspots") as maplibregl.GeoJSONSource | undefined;
     if (source && hotspots) {
-      source.setData(hotspotFootprints(hotspots, kind));
+      source.setData(hotspotFootprints(hotspots, kind, mapRef.current?.getZoom() ?? 4.3));
     }
   }, [hotspots, kind]);
 
@@ -314,6 +319,17 @@ export default function App() {
     setLocations(await getLocations(selectedProvince, selectedKabupaten));
   }
 
+  async function zoomToSelectedLocation() {
+    if (!province && !kabupaten && !kecamatan) {
+      return;
+    }
+    const response = await getLocationBounds(province, kabupaten, kecamatan);
+    if (!response.bbox) {
+      return;
+    }
+    fitMapToBbox(response.bbox);
+  }
+
   async function refreshViewportHotspots() {
     const hotspotRequestId = ++latestHotspotRequestRef.current;
     const hotspotData = await getHotspots(currentFilters(), currentMapBbox());
@@ -348,6 +364,29 @@ export default function App() {
       Math.max(west, east),
       clampLatitude(bounds.getNorth())
     ];
+  }
+
+  function fitMapToBbox([west, south, east, north]: HotspotBbox) {
+    const map = mapRef.current;
+    if (!map || west === east || south === north) {
+      return;
+    }
+    map.fitBounds(
+      [
+        [west, south],
+        [east, north]
+      ],
+      {
+        duration: 700,
+        maxZoom: kecamatan ? 12 : kabupaten ? 10 : 7,
+        padding: {
+          top: 100,
+          bottom: bottomRailOpen ? 260 : 80,
+          left: sidebarCollapsed ? 100 : 380,
+          right: rightRailOpen ? 420 : 100
+        }
+      }
+    );
   }
 
   function toggleSatellite(satellite: string) {
@@ -1065,12 +1104,13 @@ type HotspotFootprintProperties = HotspotFeature["properties"] & {
 
 function hotspotFootprints(
   collection: HotspotCollection,
-  kind: HotspotKind
+  kind: HotspotKind,
+  zoom: number
 ): GeoJSON.FeatureCollection<GeoJSON.Polygon, HotspotFootprintProperties> {
   return {
     type: "FeatureCollection",
     features: collection.features.flatMap((feature) => {
-      const footprint = hotspotFootprint(feature, kind);
+      const footprint = hotspotFootprint(feature, kind, zoom);
       return footprint ? [footprint] : [];
     })
   };
@@ -1078,15 +1118,18 @@ function hotspotFootprints(
 
 function hotspotFootprint(
   feature: HotspotFeature,
-  kind: HotspotKind
+  kind: HotspotKind,
+  zoom: number
 ): GeoJSON.Feature<GeoJSON.Polygon, HotspotFootprintProperties> | null {
   if (feature.geometry.type !== "Point") {
     return null;
   }
   const [longitude, latitude] = feature.geometry.coordinates;
   const radiusMeters = feature.properties.radius_meters ?? (kind === "pixel" ? 1000 : 1500);
-  const halfSideMeters =
+  const actualHalfSideMeters =
     kind === "pixel" ? pixelHalfSideMeters(radiusMeters) : clusterHalfSideMeters(radiusMeters);
+  const visibleHalfSideMeters = minimumVisibleHalfSideMeters(kind, latitude, zoom);
+  const halfSideMeters = Math.max(actualHalfSideMeters, visibleHalfSideMeters);
   return {
     type: "Feature",
     id: feature.id,
@@ -1103,11 +1146,18 @@ function hotspotFootprint(
 }
 
 function pixelHalfSideMeters(radiusMeters: number) {
-  return Math.max(radiusMeters / 3, 750);
+  return Math.max(radiusMeters / 6, 120);
 }
 
 function clusterHalfSideMeters(radiusMeters: number) {
-  return Math.max(radiusMeters, 1200);
+  return Math.max(radiusMeters, 240);
+}
+
+function minimumVisibleHalfSideMeters(kind: HotspotKind, latitude: number, zoom: number) {
+  const metersPerPixel = 156543.03392 * Math.cos((latitude * Math.PI) / 180) / 2 ** zoom;
+  const targetPixels = kind === "pixel" ? 3 : 5;
+  const capMeters = kind === "pixel" ? 20_000 : 40_000;
+  return Math.min(metersPerPixel * targetPixels, capMeters);
 }
 
 function squareCoordinates(
