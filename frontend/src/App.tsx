@@ -87,7 +87,7 @@ export default function App() {
   const [runs, setRuns] = useState<IngestionRun[]>([]);
   const [sources, setSources] = useState<SourceFile[]>([]);
   const [kind, setKind] = useState<HotspotKind>("cluster");
-  const [clusterProjection, setClusterProjection] = useState<ClusterProjection>("latitude_adjusted");
+  const clusterProjection: ClusterProjection = "epsg4087";
   const [satellites, setSatellites] = useState<string[]>(["snpp", "noaa20", "aqua", "tera"]);
   const [minConfidence, setMinConfidence] = useState(7);
   const [observedFrom, setObservedFrom] = useState("");
@@ -116,6 +116,7 @@ export default function App() {
     start: null,
     current: null
   });
+  const [isExporting, setIsExporting] = useState(false);
   const [currentCounts, setCurrentCounts] = useState({ clusters: 0, pixels: 0 });
   const activeFilters = useMemo<HotspotFilters>(
     () => ({
@@ -563,14 +564,24 @@ export default function App() {
     );
   }
 
-  function exportGeoJson() {
-    const blob = new Blob([JSON.stringify(hotspots, null, 2)], { type: "application/geo+json" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `brin-hotspots-${kind}.geojson`;
-    link.click();
-    URL.revokeObjectURL(url);
+  async function exportGeoJson() {
+    setIsExporting(true);
+    try {
+      // Map rendering is bbox-aware, but export must represent the complete
+      // sidebar filter set. Intentionally omit bbox here.
+      const filteredHotspots = await getHotspots(activeFilters, null);
+      const blob = new Blob([JSON.stringify(filteredHotspots, null, 2)], {
+        type: "application/geo+json"
+      });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = geoJsonExportName(activeFilters);
+      link.click();
+      URL.revokeObjectURL(url);
+    } finally {
+      setIsExporting(false);
+    }
   }
 
   return (
@@ -607,23 +618,6 @@ export default function App() {
           <div className="segmented">
             <button className={kind === "cluster" ? "active" : ""} onClick={() => setKind("cluster")}>Cluster</button>
             <button className={kind === "pixel" ? "active" : ""} onClick={() => setKind("pixel")}>Pixel</button>
-          </div>
-          <div className="control-group">
-            <span>Clustering projection</span>
-            <div className="segmented projection-switch">
-              <button
-                className={clusterProjection === "latitude_adjusted" ? "active" : ""}
-                onClick={() => setClusterProjection("latitude_adjusted")}
-              >
-                Latitude-adjusted
-              </button>
-              <button
-                className={clusterProjection === "epsg4087" ? "active" : ""}
-                onClick={() => setClusterProjection("epsg4087")}
-              >
-                EPSG:4087
-              </button>
-            </div>
           </div>
           <label className="range-label">
             <span className="range-label-header">
@@ -756,7 +750,9 @@ export default function App() {
             <Crosshair size={16} /> Bbox
           </button>
           <button className="toolbar-button" onClick={() => void refresh()}><RefreshCw size={16} /> Refresh</button>
-          <button className="toolbar-button" onClick={exportGeoJson}><Download size={16} /> GeoJSON</button>
+          <button className="toolbar-button" onClick={() => void exportGeoJson()} disabled={isExporting}>
+            <Download size={16} /> {isExporting ? "Exporting" : "GeoJSON"}
+          </button>
         </div>
         <div ref={mapNodeRef} className="map" />
         {bboxSelection.active && (
@@ -894,6 +890,14 @@ function sourceTime(source: SourceFile) {
 
 function inactiveBboxSelection(): BboxSelectionState {
   return { active: false, dragging: false, start: null, current: null };
+}
+
+function geoJsonExportName(filters: HotspotFilters) {
+  const datePart =
+    filters.observedFrom && filters.observedTo && filters.observedFrom === filters.observedTo
+      ? filters.observedFrom
+      : [filters.observedFrom || "start", filters.observedTo || "end"].join("_");
+  return `brin-hotspots-${filters.kind}-${datePart}.geojson`;
 }
 
 function pointerPoint(event: PointerEvent<HTMLDivElement>): ScreenPoint {

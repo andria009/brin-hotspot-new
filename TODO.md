@@ -8,7 +8,7 @@ Remaining work for the modernized BRIN hotspot workspace.
 - Add sanitized real AQUA converted CSV/HDF4 fixtures from the tested production sample, plus TERA fixtures once available.
 - Add a real GeoTIFF fire-index fixture and assert actual XYZ tile output, not only command construction and empty-tree smoke checks.
 - Validate real province, kabupaten, kecamatan, and persistent-anomaly GeoJSON imports against the production schema and enrichment queries.
-- Tune duplicate filtering buffers and clustering behavior using representative SNPP, NOAA20, AQUA/MODIS, and Landsat 8 data.
+- Tune duplicate filtering buffers and clustering behavior using representative SNPP, NOAA20, AQUA/MODIS, and Landsat 8 data, including comparison of EPSG:4087, latitude-adjusted, scene-local equirectangular, and geodesic-distance clustering.
 
 ## Operations
 

@@ -85,7 +85,7 @@ Important state groups:
 | `runs` | Recent ingestion runs. |
 | `sources` | Recent source-file checkpoint records. |
 | `kind` | `cluster` or `pixel`. |
-| `clusterProjection` | Stored cluster projection variant, either `latitude_adjusted` or `epsg4087`. |
+| `clusterProjection` | Fixed frontend cluster projection variant, `epsg4087`. |
 | `satellites` | Selected satellite filters. |
 | `minConfidence` | Minimum confidence threshold. |
 | `observedFrom`, `observedTo` | Date-only filters. |
@@ -133,6 +133,7 @@ Map interactions:
 - Hovering over a hotspot changes the cursor.
 - Activating the Bbox toolbar button lets the operator drag a rectangle, zoom the map to that area, and refresh the visible hotspots from the new viewport.
 - Switching basemap toggles raster layer visibility.
+- Exporting GeoJSON requests the full sidebar-filtered hotspot set from the API, independent of the current map viewport bbox.
 - Selecting province, kota/kabupaten, or kecamatan zooms the map to that administrative area.
 - Selecting province, kota/kabupaten, or kecamatan keeps matching hotspots colored and greys out non-selected hotspots.
 
@@ -160,7 +161,7 @@ The dashboard supports these filters:
 | Filter | UI | API behavior |
 | --- | --- | --- |
 | Cluster/pixel | Segmented control | Sends `kind=cluster` or `kind=pixel`. |
-| Clustering projection | Segmented control | Sends `cluster_projection=latitude_adjusted` or `cluster_projection=epsg4087` for cluster requests. |
+| Clustering projection | Hidden frontend setting | Sends `cluster_projection=epsg4087` for cluster requests. Alternative stored variants remain available through the API. |
 | Minimum confidence | Slider | Sends `min_confidence`. |
 | From date | Date input | Sends `observed_from` as start of day. |
 | To date | Date input | Sends `observed_to` as end of day. |

@@ -357,10 +357,6 @@ button {
   font-weight: 800;
 }
 
-.projection-switch {
-  grid-template-columns: 1fr 1fr;
-}
-
 .range-label {
   color: #526173;
   display: grid;

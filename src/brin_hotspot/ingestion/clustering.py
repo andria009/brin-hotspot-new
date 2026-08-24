@@ -57,7 +57,8 @@ def _project_detections(
 
 
 def _project_to_local_meters(detection: HotspotDetection) -> tuple[float, float]:
-    # Fast equirectangular projection. Good enough for clustering nearby fire pixels.
+    # Fast equirectangular approximation retained for operational comparison.
+    # Because longitude is absolute here, latitude differences can leak into x.
     meters_per_degree = 111_320.0
     lat = detection.latitude * meters_per_degree
     lon = detection.longitude * meters_per_degree * cos(radians(detection.latitude))

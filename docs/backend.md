@@ -219,7 +219,7 @@ The shared ingestion engine is used by every satellite family. Satellite-specifi
 2. Parse detections into a common hotspot pixel model.
 3. Optionally enrich pixels with PostGIS reference polygons.
 4. Optionally filter persistent anomalies and duplicates.
-5. Cluster remaining pixels using the default latitude-adjusted projection and, when `pyproj` is available, the EPSG:4087 stored variant.
+5. Cluster remaining pixels into stored projection variants: latitude-adjusted and, when `pyproj` is available, EPSG:4087.
 6. Write CSV outputs.
 7. Optionally persist pixels and projection-specific clusters to PostGIS.
 8. Update source-file and ingestion-run status.

@@ -140,10 +140,10 @@ The system stores cluster variants instead of recomputing clusters during API re
 
 Supported `hotspot_cluster.cluster_projection` values:
 
-- `latitude_adjusted`: the default latitude-adjusted equirectangular meters approximation. Longitude is scaled by `cos(latitude)` before Euclidean neighbor distance is measured.
-- `epsg4087`: the legacy-compatible WGS 84 / World Equidistant Cylindrical projection.
+- `epsg4087`: WGS 84 / World Equidistant Cylindrical projection. The frontend selects this variant by default for cluster visualization because it is a defined CRS and provides a stable comparison frame across Indonesia.
+- `latitude_adjusted`: a fast equirectangular meters approximation. Longitude is scaled by `cos(latitude)` before Euclidean neighbor distance is measured.
 
-The frontend labels the default method as **Latitude-adjusted**. This is more precise than "local" because the important behavior is latitude-dependent longitude scaling. This method is preferable for small hotspot-neighbor distance tests because each detection uses the local east-west meter scale at its latitude. EPSG:4087 is a global equidistant cylindrical CRS with the standard parallel at the equator, so its east-west scale is exact at the equator but not locally adjusted for every hotspot latitude.
+The `latitude_adjusted` method is retained for operational comparison with earlier runs, but it should be treated as an approximation rather than a geometrically exact local projection. The current implementation scales absolute longitude by each detection's latitude, which can introduce longitude-dependent distortion when points differ in latitude. A future scene-local equirectangular variant should subtract a local reference longitude and latitude before applying the meter scale. EPSG:4087 is also an approximation, but it is explicit, reproducible, and better suited as the frontend's default comparison method.
 
 References:
 
