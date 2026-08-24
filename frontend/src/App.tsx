@@ -450,9 +450,10 @@ export default function App() {
   }
 
   function moveBboxSelection(event: PointerEvent<HTMLDivElement>) {
+    const point = pointerPoint(event);
     setBboxSelection((current) =>
       current.active && current.dragging
-        ? { ...current, current: pointerPoint(event) }
+        ? { ...current, current: point }
         : current
     );
   }
