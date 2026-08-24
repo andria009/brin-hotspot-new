@@ -570,6 +570,27 @@ button {
   color: #b7192b;
 }
 
+.toolbar-button.active {
+  background: #162a42;
+  border-color: #162a42;
+  color: white;
+}
+
+.bbox-selection-layer {
+  cursor: crosshair;
+  inset: 0;
+  position: absolute;
+  touch-action: none;
+  z-index: 1;
+}
+
+.bbox-selection-box {
+  background: rgba(183, 25, 43, 0.14);
+  border: 2px solid #b7192b;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.7);
+  position: absolute;
+}
+
 .bottom-rail {
   background: rgba(248, 250, 252, 0.98);
   border: 1px solid #d9e1e8;

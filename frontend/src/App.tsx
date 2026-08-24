@@ -3,6 +3,7 @@ import {
   BarChart3,
   ChevronDown,
   ChevronRight,
+  Crosshair,
   Database,
   Download,
   Flame,
@@ -15,7 +16,7 @@ import {
   Search
 } from "lucide-react";
 import maplibregl from "maplibre-gl";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { type PointerEvent, useEffect, useMemo, useRef, useState } from "react";
 import {
   getHotspots,
   getHotspotTotal,
@@ -51,13 +52,26 @@ const SATELLITE_COLORS: Record<string, string> = {
   tera: "#287c56",
   landsat8: "#6f4dbf"
 };
+const SATELLITE_PIXEL_RADIUS_METERS: Record<string, number> = {
+  snpp: 1125,
+  noaa20: 1125,
+  aqua: 3000,
+  tera: 3000,
+  landsat8: 90
+};
 // The confidence scale is discrete in the source data, but colors are interpolated
 // so the map and sidebar legend read as one continuous low-to-high risk ramp.
 const CONFIDENCE_VALUES = Array.from({ length: 10 }, (_, index) => index);
 const HOTSPOT_FILL_LAYER = "hotspot-footprints";
-const HOTSPOT_OUTLINE_LAYER = "hotspot-footprint-outlines";
 type Basemap = "street" | "satellite";
 type DetailSection = "status" | "runs" | "sources";
+type ScreenPoint = { x: number; y: number };
+type BboxSelectionState = {
+  active: boolean;
+  dragging: boolean;
+  start: ScreenPoint | null;
+  current: ScreenPoint | null;
+};
 
 export default function App() {
   const mapRef = useRef<maplibregl.Map | null>(null);
@@ -96,6 +110,12 @@ export default function App() {
     sources: true
   });
   const [basemap, setBasemap] = useState<Basemap>("street");
+  const [bboxSelection, setBboxSelection] = useState<BboxSelectionState>({
+    active: false,
+    dragging: false,
+    start: null,
+    current: null
+  });
   const [currentCounts, setCurrentCounts] = useState({ clusters: 0, pixels: 0 });
   const activeFilters = useMemo<HotspotFilters>(
     () => ({
@@ -206,16 +226,6 @@ export default function App() {
           "fill-opacity": 0.86
         }
       });
-      mapRef.current?.addLayer({
-        id: HOTSPOT_OUTLINE_LAYER,
-        type: "line",
-        source: "hotspots",
-        paint: {
-          "line-color": "#ffffff",
-          "line-opacity": 0.82,
-          "line-width": 1
-        }
-      });
       mapRef.current?.on("click", HOTSPOT_FILL_LAYER, (event) => {
         setSelected(event.features?.[0] ?? null);
       });
@@ -226,6 +236,7 @@ export default function App() {
         mapRef.current!.getCanvas().style.cursor = "";
       });
       mapRef.current?.on("moveend", scheduleViewportHotspotRefresh);
+      void refreshViewportHotspots();
     });
     return () => {
       if (viewportRefreshTimeoutRef.current) {
@@ -271,10 +282,26 @@ export default function App() {
     window.setTimeout(() => mapRef.current?.resize(), 0);
   }, [sidebarCollapsed, rightRailOpen, bottomRailOpen]);
 
+  useEffect(() => {
+    if (!bboxSelection.active) {
+      return;
+    }
+    const cancelSelection = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setBboxSelection(inactiveBboxSelection());
+      }
+    };
+    window.addEventListener("keydown", cancelSelection);
+    return () => window.removeEventListener("keydown", cancelSelection);
+  }, [bboxSelection.active]);
+
   async function refresh() {
     const filters = activeFilters;
+    const bbox = currentMapBbox();
     const hotspotRequestId = ++latestHotspotRequestRef.current;
-    const hotspotRequest = getHotspots(filters, currentMapBbox());
+    const hotspotRequest = shouldFetchHotspotFeatures(filters, bbox)
+      ? getHotspots(filters, bbox)
+      : Promise.resolve(emptyHotspotCollection());
     const [
       summaryData,
       hotspotData,
@@ -331,8 +358,14 @@ export default function App() {
   }
 
   async function refreshViewportHotspots() {
+    const filters = currentFilters();
+    const bbox = currentMapBbox();
     const hotspotRequestId = ++latestHotspotRequestRef.current;
-    const hotspotData = await getHotspots(currentFilters(), currentMapBbox());
+    if (!shouldFetchHotspotFeatures(filters, bbox)) {
+      setHotspots(emptyHotspotCollection());
+      return;
+    }
+    const hotspotData = await getHotspots(filters, bbox);
     if (hotspotRequestId === latestHotspotRequestRef.current) {
       setHotspots(hotspotData);
     }
@@ -387,6 +420,84 @@ export default function App() {
         }
       }
     );
+  }
+
+  function shouldFetchHotspotFeatures(filters: HotspotFilters, bbox: HotspotBbox | null) {
+    if (!bbox) {
+      return false;
+    }
+    return (
+      defaultDateInitializedRef.current ||
+      Boolean(filters.observedFrom.trim() || filters.observedTo.trim())
+    );
+  }
+
+  function toggleBboxSelection() {
+    setBboxSelection((current) =>
+      current.active
+        ? inactiveBboxSelection()
+        : { active: true, dragging: false, start: null, current: null }
+    );
+  }
+
+  function startBboxSelection(event: PointerEvent<HTMLDivElement>) {
+    if (event.button !== 0) {
+      return;
+    }
+    const point = pointerPoint(event);
+    event.currentTarget.setPointerCapture(event.pointerId);
+    setBboxSelection({ active: true, dragging: true, start: point, current: point });
+  }
+
+  function moveBboxSelection(event: PointerEvent<HTMLDivElement>) {
+    setBboxSelection((current) =>
+      current.active && current.dragging
+        ? { ...current, current: pointerPoint(event) }
+        : current
+    );
+  }
+
+  function finishBboxSelection(event: PointerEvent<HTMLDivElement>) {
+    if (
+      !bboxSelection.active ||
+      !bboxSelection.dragging ||
+      !bboxSelection.start ||
+      !bboxSelection.current
+    ) {
+      return;
+    }
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    const selectedBbox = selectedMapBbox(bboxSelection.start, bboxSelection.current);
+    if (!selectedBbox) {
+      setBboxSelection({ active: true, dragging: false, start: null, current: null });
+      return;
+    }
+    setBboxSelection(inactiveBboxSelection());
+    fitMapToBbox(selectedBbox);
+  }
+
+  function selectedMapBbox(start: ScreenPoint, current: ScreenPoint): HotspotBbox | null {
+    const map = mapRef.current;
+    if (!map) {
+      return null;
+    }
+    const minX = Math.min(start.x, current.x);
+    const maxX = Math.max(start.x, current.x);
+    const minY = Math.min(start.y, current.y);
+    const maxY = Math.max(start.y, current.y);
+    if (maxX - minX < 10 || maxY - minY < 10) {
+      return null;
+    }
+    const southwest = map.unproject([minX, maxY]);
+    const northeast = map.unproject([maxX, minY]);
+    return [
+      Math.min(southwest.lng, northeast.lng),
+      clampLatitude(Math.min(southwest.lat, northeast.lat)),
+      Math.max(southwest.lng, northeast.lng),
+      clampLatitude(Math.max(southwest.lat, northeast.lat))
+    ];
   }
 
   function toggleSatellite(satellite: string) {
@@ -637,10 +748,32 @@ export default function App() {
             Details
           </button>
           <button className="toolbar-button" onClick={() => setBottomRailOpen((open) => !open)}><BarChart3 size={16} /> Statistics</button>
+          <button
+            className={`toolbar-button ${bboxSelection.active ? "active" : ""}`}
+            onClick={toggleBboxSelection}
+          >
+            <Crosshair size={16} /> Bbox
+          </button>
           <button className="toolbar-button" onClick={() => void refresh()}><RefreshCw size={16} /> Refresh</button>
           <button className="toolbar-button" onClick={exportGeoJson}><Download size={16} /> GeoJSON</button>
         </div>
         <div ref={mapNodeRef} className="map" />
+        {bboxSelection.active && (
+          <div
+            className="bbox-selection-layer"
+            onPointerDown={startBboxSelection}
+            onPointerMove={moveBboxSelection}
+            onPointerUp={finishBboxSelection}
+            onPointerCancel={() => setBboxSelection(inactiveBboxSelection())}
+          >
+            {bboxSelection.dragging && bboxSelection.start && bboxSelection.current && (
+              <div
+                className="bbox-selection-box"
+                style={selectionBoxStyle(bboxSelection.start, bboxSelection.current)}
+              />
+            )}
+          </div>
+        )}
         {selected && <FeatureInspector feature={selected} onClose={() => setSelected(null)} />}
         {bottomRailOpen && (
           <section className="bottom-rail">
@@ -756,6 +889,29 @@ function latestSourcesPerSatellite(sources: SourceFile[], limit: number) {
 
 function sourceTime(source: SourceFile) {
   return new Date(source.processed_at ?? source.observed_at ?? 0);
+}
+
+function inactiveBboxSelection(): BboxSelectionState {
+  return { active: false, dragging: false, start: null, current: null };
+}
+
+function pointerPoint(event: PointerEvent<HTMLDivElement>): ScreenPoint {
+  const rect = event.currentTarget.getBoundingClientRect();
+  return {
+    x: event.clientX - rect.left,
+    y: event.clientY - rect.top
+  };
+}
+
+function selectionBoxStyle(start: ScreenPoint, current: ScreenPoint) {
+  const left = Math.min(start.x, current.x);
+  const top = Math.min(start.y, current.y);
+  return {
+    left,
+    top,
+    width: Math.abs(current.x - start.x),
+    height: Math.abs(current.y - start.y)
+  };
 }
 
 /**
@@ -1104,31 +1260,36 @@ type HotspotFootprintProperties = HotspotFeature["properties"] & {
 
 function hotspotFootprints(
   collection: HotspotCollection,
-  kind: HotspotKind,
+  _kind: HotspotKind,
   zoom: number
 ): GeoJSON.FeatureCollection<GeoJSON.Polygon, HotspotFootprintProperties> {
   return {
     type: "FeatureCollection",
     features: collection.features.flatMap((feature) => {
-      const footprint = hotspotFootprint(feature, kind, zoom);
+      const footprint = hotspotFootprint(feature, zoom);
       return footprint ? [footprint] : [];
     })
   };
 }
 
+function emptyHotspotCollection(): HotspotCollection {
+  return { type: "FeatureCollection", total: 0, features: [] };
+}
+
 function hotspotFootprint(
   feature: HotspotFeature,
-  kind: HotspotKind,
   zoom: number
 ): GeoJSON.Feature<GeoJSON.Polygon, HotspotFootprintProperties> | null {
   if (feature.geometry.type !== "Point") {
     return null;
   }
   const [longitude, latitude] = feature.geometry.coordinates;
-  const radiusMeters = feature.properties.radius_meters ?? (kind === "pixel" ? 1000 : 1500);
-  const actualHalfSideMeters =
-    kind === "pixel" ? pixelHalfSideMeters(radiusMeters) : clusterHalfSideMeters(radiusMeters);
-  const visibleHalfSideMeters = minimumVisibleHalfSideMeters(kind, latitude, zoom);
+  const radiusMeters =
+    SATELLITE_PIXEL_RADIUS_METERS[feature.properties.satellite] ??
+    feature.properties.radius_meters ??
+    1000;
+  const actualHalfSideMeters = footprintHalfSideMeters(radiusMeters);
+  const visibleHalfSideMeters = minimumVisibleHalfSideMeters(latitude, zoom);
   const halfSideMeters = Math.max(actualHalfSideMeters, visibleHalfSideMeters);
   return {
     type: "Feature",
@@ -1145,19 +1306,13 @@ function hotspotFootprint(
   };
 }
 
-function pixelHalfSideMeters(radiusMeters: number) {
+function footprintHalfSideMeters(radiusMeters: number) {
   return Math.max(radiusMeters / 6, 120);
 }
 
-function clusterHalfSideMeters(radiusMeters: number) {
-  return Math.max(radiusMeters, 240);
-}
-
-function minimumVisibleHalfSideMeters(kind: HotspotKind, latitude: number, zoom: number) {
+function minimumVisibleHalfSideMeters(latitude: number, zoom: number) {
   const metersPerPixel = 156543.03392 * Math.cos((latitude * Math.PI) / 180) / 2 ** zoom;
-  const targetPixels = kind === "pixel" ? 3 : 5;
-  const capMeters = kind === "pixel" ? 20_000 : 40_000;
-  return Math.min(metersPerPixel * targetPixels, capMeters);
+  return Math.min(metersPerPixel * 3, 20_000);
 }
 
 function squareCoordinates(
