@@ -4,7 +4,7 @@ from collections.abc import Sequence
 from datetime import datetime
 from typing import Annotated, Literal
 
-from fastapi import Depends, FastAPI, Query
+from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 
 from brin_hotspot.api.repository import ReadOnlyHotspotRepository
@@ -17,9 +17,12 @@ from brin_hotspot.api.schemas import (
     LocationBoundsResponse,
     LocationOptionsResponse,
     OperationalSummary,
+    SceneRequest,
+    SceneResponse,
     SourceFileResponse,
 )
 from brin_hotspot.config import Settings, get_settings
+from brin_hotspot.geocatalog import GeoCatalogClient, GeoCatalogError
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -33,7 +36,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         CORSMiddleware,
         allow_origins=["*"],
         allow_credentials=False,
-        allow_methods=["GET", "OPTIONS"],
+        allow_methods=["GET", "POST", "OPTIONS"],
         allow_headers=["*"],
     )
 
@@ -202,12 +205,26 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             kecamatan=kecamatan,
         )
 
+    @app.post("/api/v1/scenes/resolve", response_model=SceneResponse)
+    def resolve_scene(
+        payload: SceneRequest,
+        client: Annotated[GeoCatalogClient, Depends(get_geocatalog_client)],
+    ) -> dict:
+        try:
+            return client.request_scene(payload.model_dump(mode="json"))
+        except GeoCatalogError as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
+
     return app
 
 
 def get_repository() -> ReadOnlyHotspotRepository:
     settings = get_settings()
     return ReadOnlyHotspotRepository(settings.hotspot_database)
+
+
+def get_geocatalog_client() -> GeoCatalogClient:
+    return GeoCatalogClient(get_settings())
 
 
 app = create_app()

@@ -53,6 +53,19 @@ class Settings(BaseSettings):
     log_level: str = Field(default="INFO", alias="HOTSPOT_LOG_LEVEL")
     log_format: str = Field(default="json", alias="HOTSPOT_LOG_FORMAT")
     trace_files: bool = Field(default=False, alias="HOTSPOT_TRACE_FILES")
+    geocatalog_api_url: str = Field(
+        default="http://localhost:8010/api/v1",
+        alias="HOTSPOT_GEOCATALOG_API_URL",
+    )
+    geocatalog_access_token: SecretStr = Field(
+        default=SecretStr(""),
+        alias="HOTSPOT_GEOCATALOG_ACCESS_TOKEN",
+    )
+    geocatalog_timeout_seconds: float = Field(
+        default=30,
+        gt=0,
+        alias="HOTSPOT_GEOCATALOG_TIMEOUT_SECONDS",
+    )
     hotspot_database: DatabaseSettings = Field(default_factory=DatabaseSettings)
     raster_database: RasterDatabaseSettings = Field(default_factory=RasterDatabaseSettings)
     paths: PathSettings = Field(default_factory=PathSettings)

@@ -809,7 +809,7 @@ button {
   z-index: 3;
 }
 
-.inspector button {
+.inspector-close {
   background: #eef3f7;
   border: 0;
   border-radius: 50%;
@@ -818,6 +818,34 @@ button {
   right: 10px;
   top: 10px;
   width: 28px;
+}
+
+.inspector .scene-request-button {
+  background: #163f69;
+  border: 0;
+  border-radius: 6px;
+  color: white;
+  cursor: pointer;
+  font-weight: 700;
+  margin-top: 16px;
+  padding: 9px 12px;
+  width: 100%;
+}
+
+.inspector .scene-request-button:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
+.scene-status {
+  color: #34495e;
+  font-size: 12px;
+  line-height: 1.45;
+  margin: 10px 0 0;
+}
+
+.scene-error {
+  color: #a32833;
 }
 
 .inspector h2 {

@@ -27,6 +27,7 @@ import {
   getStatistics,
   getSummary,
   getTrend,
+  requestScene,
   type HotspotBbox,
   type HotspotFilters
 } from "./api";
@@ -41,6 +42,7 @@ import type {
   IngestionRun,
   LocationOptions,
   OperationalSummary,
+  SceneResponse,
   SourceFile
 } from "./types";
 
@@ -52,12 +54,12 @@ const SATELLITE_COLORS: Record<string, string> = {
   tera: "#287c56",
   landsat8: "#6f4dbf"
 };
-const SATELLITE_PIXEL_RADIUS_METERS: Record<string, number> = {
-  snpp: 1125,
-  noaa20: 1125,
-  aqua: 3000,
-  tera: 3000,
-  landsat8: 90
+const SATELLITE_PIXEL_SIZE_METERS: Record<string, number> = {
+  snpp: 375,
+  noaa20: 375,
+  aqua: 1000,
+  tera: 1000,
+  landsat8: 30
 };
 // The confidence scale is discrete in the source data, but colors are interpolated
 // so the map and sidebar legend read as one continuous low-to-high risk ramp.
@@ -771,7 +773,13 @@ export default function App() {
             )}
           </div>
         )}
-        {selected && <FeatureInspector feature={selected} onClose={() => setSelected(null)} />}
+        {selected && (
+          <FeatureInspector
+            key={String(selected.id)}
+            feature={selected}
+            onClose={() => setSelected(null)}
+          />
+        )}
         {bottomRailOpen && (
           <section className="bottom-rail">
             <div className="statistics-grid">
@@ -1289,11 +1297,10 @@ function hotspotFootprint(
     return null;
   }
   const [longitude, latitude] = feature.geometry.coordinates;
-  const radiusMeters =
-    SATELLITE_PIXEL_RADIUS_METERS[feature.properties.satellite] ??
-    feature.properties.radius_meters ??
-    1000;
-  const actualHalfSideMeters = footprintHalfSideMeters(radiusMeters);
+  const pixelSizeMeters =
+    SATELLITE_PIXEL_SIZE_METERS[feature.properties.satellite] ??
+    (feature.properties.radius_meters ? feature.properties.radius_meters / 3 : 1000);
+  const actualHalfSideMeters = pixelSizeMeters / 2;
   const visibleHalfSideMeters = minimumVisibleHalfSideMeters(latitude, zoom);
   const halfSideMeters = Math.max(actualHalfSideMeters, visibleHalfSideMeters);
   return {
@@ -1309,10 +1316,6 @@ function hotspotFootprint(
       coordinates: [squareCoordinates(longitude, latitude, halfSideMeters)]
     }
   };
-}
-
-function footprintHalfSideMeters(radiusMeters: number) {
-  return Math.max(radiusMeters / 6, 120);
 }
 
 function minimumVisibleHalfSideMeters(latitude: number, zoom: number) {
@@ -1392,9 +1395,46 @@ function Row({ title, meta }: { title: string; meta: string }) {
 function FeatureInspector({ feature, onClose }: { feature: GeoJSON.Feature; onClose: () => void }) {
   const props = feature.properties ?? {};
   const coordinates = pointCoordinates(feature);
+  const [scene, setScene] = useState<SceneResponse | null>(null);
+  const [sceneError, setSceneError] = useState("");
+  const [sceneLoading, setSceneLoading] = useState(false);
+
+  useEffect(() => {
+    if (scene?.status !== "pending") {
+      return;
+    }
+    const retry = window.setTimeout(
+      () => void loadScene(),
+      (scene.retry_after_seconds ?? 60) * 1000
+    );
+    return () => window.clearTimeout(retry);
+  }, [scene]);
+
+  async function loadScene() {
+    if (!coordinates || !props.observed_at || !props.satellite) {
+      return;
+    }
+    setSceneLoading(true);
+    setSceneError("");
+    try {
+      setScene(await requestScene({
+        satellite: String(props.satellite),
+        observed_at: String(props.observed_at),
+        longitude: coordinates.longitude,
+        latitude: coordinates.latitude,
+        scene_id: props.scene_id ? String(props.scene_id) : null,
+        pixel_size_meters: SATELLITE_PIXEL_SIZE_METERS[String(props.satellite)] ?? 1000
+      }));
+    } catch (error) {
+      setSceneError(error instanceof Error ? error.message : "Could not request satellite scene");
+    } finally {
+      setSceneLoading(false);
+    }
+  }
+
   return (
     <div className="inspector">
-      <button onClick={onClose} aria-label="Close">×</button>
+      <button className="inspector-close" onClick={onClose} aria-label="Close">×</button>
       <h2>{satelliteLabel(String(props.satellite ?? ""))} hotspot</h2>
       <dl>
         <dt>Coordinates</dt><dd>{formatCoordinates(coordinates)}</dd>
@@ -1405,6 +1445,25 @@ function FeatureInspector({ feature, onClose }: { feature: GeoJSON.Feature; onCl
         <dt>Kecamatan</dt><dd>{String(props.kecamatan ?? "-")}</dd>
         <dt>Scene</dt><dd>{String(props.scene_id ?? "-")}</dd>
       </dl>
+      <button
+        className="scene-request-button"
+        disabled={sceneLoading || !coordinates || !props.observed_at}
+        onClick={() => void loadScene()}
+      >
+        {sceneLoading ? "Checking GeoCatalog…" : "Load satellite scene"}
+      </button>
+      {scene?.status === "ready" && scene.asset_url ? (
+        <p className="scene-status">
+          Scene ready: <a href={scene.asset_url} target="_blank" rel="noreferrer">open asset</a>
+        </p>
+      ) : null}
+      {scene?.status === "pending" ? (
+        <p className="scene-status">GeoCatalog queued this scene for download and indexing.</p>
+      ) : null}
+      {scene?.status === "unavailable" ? (
+        <p className="scene-status scene-error">{scene.reason}</p>
+      ) : null}
+      {sceneError ? <p className="scene-status scene-error">{sceneError}</p> : null}
     </div>
   );
 }

@@ -17,6 +17,7 @@ import type {
   LocationBounds,
   LocationOptions,
   OperationalSummary,
+  SceneResponse,
   SourceFile
 } from "./types";
 
@@ -149,6 +150,26 @@ export async function getLocationBounds(
   appendIfPresent(params, "kecamatan", kecamatan);
   const suffix = params.toString() ? `?${params.toString()}` : "";
   return getJson(`/location-bounds${suffix}`, { bbox: null });
+}
+
+export async function requestScene(payload: {
+  satellite: string;
+  observed_at: string;
+  longitude: number;
+  latitude: number;
+  scene_id: string | null;
+  pixel_size_meters: number;
+}): Promise<SceneResponse> {
+  const response = await fetch(`${API_BASE}/scenes/resolve`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+  if (!response.ok) {
+    const error = (await response.json().catch(() => null)) as { detail?: string } | null;
+    throw new Error(error?.detail ?? `${response.status} ${response.statusText}`);
+  }
+  return (await response.json()) as SceneResponse;
 }
 
 async function getJson<T>(path: string, fallback: T): Promise<T> {

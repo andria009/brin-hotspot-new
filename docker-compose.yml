@@ -292,11 +292,16 @@ services:
       HOTSPOT_INPUT_DIR: ${HOTSPOT_INPUT_DIR:-/app/data/input}
       HOTSPOT_OUTPUT_DIR: ${HOTSPOT_OUTPUT_DIR:-/app/data/output}
       HOTSPOT_LOG_DIR: ${HOTSPOT_LOG_DIR:-/app/logs}
+      HOTSPOT_GEOCATALOG_API_URL: ${HOTSPOT_GEOCATALOG_API_URL:-http://host.docker.internal:8090/api/v1}
+      HOTSPOT_GEOCATALOG_ACCESS_TOKEN: ${HOTSPOT_GEOCATALOG_ACCESS_TOKEN:-}
+      HOTSPOT_GEOCATALOG_TIMEOUT_SECONDS: ${HOTSPOT_GEOCATALOG_TIMEOUT_SECONDS:-30}
     ports:
       - "${HOTSPOT_API_PORT:-8000}:8000"
     depends_on:
       db:
         condition: service_healthy
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     command: ["hotspot", "serve", "--host", "0.0.0.0", "--port", "8000"]
 
   frontend:
