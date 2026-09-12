@@ -104,6 +104,10 @@ class SceneResponse(BaseModel):
     platform: str
     dataset: dict[str, Any] | None = None
     asset_url: str | None = None
+    assets: list[dict[str, Any]] = Field(default_factory=list)
+    bundle_url: str | None = None
+    overlay_url: str | None = None
+    overlay_bbox: list[float] | None = None
     expires_in_seconds: int | None = None
     job: dict[str, Any] | None = None
     retry_after_seconds: int | None = None

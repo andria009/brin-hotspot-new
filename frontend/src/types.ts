@@ -63,6 +63,17 @@ export type SceneResponse = {
     bbox: [number, number, number, number] | null;
   } | null;
   asset_url: string | null;
+  assets: {
+    id: string;
+    role: string;
+    title: string;
+    media_type: string;
+    bbox: [number, number, number, number] | null;
+    download_url: string;
+  }[];
+  bundle_url: string | null;
+  overlay_url: string | null;
+  overlay_bbox: [number, number, number, number] | null;
   expires_in_seconds: number | null;
   job: { id: string; status: string } | null;
   retry_after_seconds: number | null;

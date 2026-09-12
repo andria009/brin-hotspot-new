@@ -65,6 +65,8 @@ const SATELLITE_PIXEL_SIZE_METERS: Record<string, number> = {
 // so the map and sidebar legend read as one continuous low-to-high risk ramp.
 const CONFIDENCE_VALUES = Array.from({ length: 10 }, (_, index) => index);
 const HOTSPOT_FILL_LAYER = "hotspot-footprints";
+const SCENE_OVERLAY_SOURCE = "geocatalog-scene-overlay";
+const SCENE_OVERLAY_LAYER = "geocatalog-scene-overlay";
 type Basemap = "street" | "satellite";
 type DetailSection = "status" | "runs" | "sources";
 type ScreenPoint = { x: number; y: number };
@@ -778,6 +780,7 @@ export default function App() {
             key={String(selected.id)}
             feature={selected}
             onClose={() => setSelected(null)}
+            onSceneReady={(scene) => showSceneOverlay(mapRef.current, scene)}
           />
         )}
         {bottomRailOpen && (
@@ -1302,7 +1305,8 @@ function hotspotFootprint(
     (feature.properties.radius_meters ? feature.properties.radius_meters / 3 : 1000);
   const actualHalfSideMeters = pixelSizeMeters / 2;
   const visibleHalfSideMeters = minimumVisibleHalfSideMeters(latitude, zoom);
-  const halfSideMeters = Math.max(actualHalfSideMeters, visibleHalfSideMeters);
+  const halfSideMeters =
+    zoom >= 12 ? actualHalfSideMeters : Math.max(actualHalfSideMeters, visibleHalfSideMeters);
   return {
     type: "Feature",
     id: feature.id,
@@ -1392,7 +1396,15 @@ function Row({ title, meta }: { title: string; meta: string }) {
   );
 }
 
-function FeatureInspector({ feature, onClose }: { feature: GeoJSON.Feature; onClose: () => void }) {
+function FeatureInspector({
+  feature,
+  onClose,
+  onSceneReady
+}: {
+  feature: GeoJSON.Feature;
+  onClose: () => void;
+  onSceneReady: (scene: SceneResponse) => void;
+}) {
   const props = feature.properties ?? {};
   const coordinates = pointCoordinates(feature);
   const [scene, setScene] = useState<SceneResponse | null>(null);
@@ -1417,14 +1429,18 @@ function FeatureInspector({ feature, onClose }: { feature: GeoJSON.Feature; onCl
     setSceneLoading(true);
     setSceneError("");
     try {
-      setScene(await requestScene({
+      const resolved = await requestScene({
         satellite: String(props.satellite),
         observed_at: String(props.observed_at),
         longitude: coordinates.longitude,
         latitude: coordinates.latitude,
         scene_id: props.scene_id ? String(props.scene_id) : null,
         pixel_size_meters: SATELLITE_PIXEL_SIZE_METERS[String(props.satellite)] ?? 1000
-      }));
+      });
+      setScene(resolved);
+      if (resolved.status === "ready") {
+        onSceneReady(resolved);
+      }
     } catch (error) {
       setSceneError(error instanceof Error ? error.message : "Could not request satellite scene");
     } finally {
@@ -1454,8 +1470,23 @@ function FeatureInspector({ feature, onClose }: { feature: GeoJSON.Feature; onCl
       </button>
       {scene?.status === "ready" && scene.asset_url ? (
         <p className="scene-status">
-          Scene ready: <a href={scene.asset_url} target="_blank" rel="noreferrer">open asset</a>
+          Scene ready. <a href={scene.asset_url} target="_blank" rel="noreferrer">Download radiance</a>
         </p>
+      ) : null}
+      {scene?.status === "ready" && scene.bundle_url ? (
+        <p className="scene-status">
+          <a href={scene.bundle_url}>Download complete bundle (.tar)</a>
+        </p>
+      ) : null}
+      {scene?.status === "ready" && scene.assets.length > 0 ? (
+        <ul className="scene-assets">
+          {scene.assets.map((asset) => (
+            <li key={asset.id}>
+              <a href={asset.download_url}>{sceneAssetLabel(asset.role)}</a>
+              <span>{asset.title}</span>
+            </li>
+          ))}
+        </ul>
       ) : null}
       {scene?.status === "pending" ? (
         <p className="scene-status">GeoCatalog queued this scene for download and indexing.</p>
@@ -1466,6 +1497,54 @@ function FeatureInspector({ feature, onClose }: { feature: GeoJSON.Feature; onCl
       {sceneError ? <p className="scene-status scene-error">{sceneError}</p> : null}
     </div>
   );
+}
+
+function showSceneOverlay(map: maplibregl.Map | null, scene: SceneResponse) {
+  if (!map || !scene.overlay_url || !scene.overlay_bbox) {
+    return;
+  }
+  if (map.getLayer(SCENE_OVERLAY_LAYER)) {
+    map.removeLayer(SCENE_OVERLAY_LAYER);
+  }
+  if (map.getSource(SCENE_OVERLAY_SOURCE)) {
+    map.removeSource(SCENE_OVERLAY_SOURCE);
+  }
+  const [west, south, east, north] = scene.overlay_bbox;
+  map.addSource(SCENE_OVERLAY_SOURCE, {
+    type: "image",
+    url: scene.overlay_url,
+    coordinates: [
+      [west, north],
+      [east, north],
+      [east, south],
+      [west, south]
+    ]
+  });
+  map.addLayer(
+    {
+      id: SCENE_OVERLAY_LAYER,
+      type: "raster",
+      source: SCENE_OVERLAY_SOURCE,
+      paint: { "raster-opacity": 0.82 }
+    },
+    HOTSPOT_FILL_LAYER
+  );
+  map.fitBounds(
+    [
+      [west, south],
+      [east, north]
+    ],
+    { padding: 64, maxZoom: 12 }
+  );
+}
+
+function sceneAssetLabel(role: string) {
+  return {
+    radiance: "Radiance",
+    geolocation: "Geolocation",
+    overlay: "Map overlay GeoTIFF",
+    "overlay-preview": "Map preview PNG"
+  }[role] ?? "Scene asset";
 }
 
 function pointCoordinates(feature: GeoJSON.Feature) {
