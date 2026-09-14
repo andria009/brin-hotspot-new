@@ -20,6 +20,7 @@ import type {
   SceneResponse,
   SourceFile
 } from "./types";
+import { accessToken } from "./keycloak";
 
 // In production Nginx proxies /api/v1 to the API container. Local Vite
 // development can override this with VITE_HOTSPOT_API_BASE.
@@ -38,6 +39,29 @@ export type HotspotFilters = {
 };
 
 export type HotspotBbox = [number, number, number, number];
+
+export type SharedAccess = {
+  principal: { id: string; email?: string; display_name?: string };
+  memberships: Array<{
+    application: string;
+    role: "explorer" | "mage" | "sage" | "god";
+    status: string;
+    token_balance: number;
+  }>;
+  pending_requests: Array<{ id: string; application: string; requested_role: string }>;
+};
+
+export async function getAccess(): Promise<SharedAccess> {
+  return authenticatedJson<SharedAccess>("/access/me");
+}
+
+export async function requestAccess(requestedRole: "explorer" | "mage" | "sage") {
+  return authenticatedJson("/access/request", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ requested_role: requestedRole })
+  });
+}
 
 export async function getSummary(): Promise<OperationalSummary> {
   return getJson("/summary", mockSummary);
@@ -160,9 +184,13 @@ export async function requestScene(payload: {
   scene_id: string | null;
   pixel_size_meters: number;
 }): Promise<SceneResponse> {
+  const token = await accessToken();
   const response = await fetch(`${API_BASE}/scenes/resolve`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {})
+    },
     body: JSON.stringify(payload)
   });
   if (!response.ok) {
@@ -170,6 +198,25 @@ export async function requestScene(payload: {
     throw new Error(error?.detail ?? `${response.status} ${response.statusText}`);
   }
   return (await response.json()) as SceneResponse;
+}
+
+async function authenticatedJson<T = unknown>(path: string, init?: RequestInit): Promise<T> {
+  const token = await accessToken();
+  if (!token) {
+    throw new Error("Keycloak login is required");
+  }
+  const response = await fetch(`${API_BASE}${path}`, {
+    ...init,
+    headers: {
+      ...init?.headers,
+      Authorization: `Bearer ${token}`
+    }
+  });
+  if (!response.ok) {
+    const error = (await response.json().catch(() => null)) as { detail?: string } | null;
+    throw new Error(error?.detail ?? `${response.status} ${response.statusText}`);
+  }
+  return (await response.json()) as T;
 }
 
 async function getJson<T>(path: string, fallback: T): Promise<T> {

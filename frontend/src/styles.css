@@ -844,6 +844,49 @@ button {
   margin: 10px 0 0;
 }
 
+.access-panel {
+  display: grid;
+  gap: 8px;
+}
+
+.access-panel p {
+  color: #637486;
+  font-size: 12px;
+  margin: 0;
+}
+
+.access-actions,
+.access-request-row {
+  display: flex;
+  gap: 8px;
+}
+
+.access-panel button,
+.access-panel select {
+  align-items: center;
+  border: 1px solid #cbd6df;
+  border-radius: 7px;
+  display: inline-flex;
+  font: inherit;
+  gap: 5px;
+  padding: 7px 9px;
+}
+
+.access-panel button {
+  background: #fff;
+  cursor: pointer;
+}
+
+.access-panel .access-error {
+  color: #a32833;
+}
+
+.access-panel .link-button {
+  border: 0;
+  color: #315b7d;
+  padding-left: 0;
+}
+
 .scene-error {
   color: #a32833;
 }

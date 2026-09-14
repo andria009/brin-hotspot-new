@@ -8,12 +8,15 @@ import {
   Download,
   Flame,
   Layers,
+  LogIn,
+  LogOut,
   Map as MapIcon,
   PanelRightClose,
   PanelRightOpen,
   RefreshCw,
   Satellite,
-  Search
+  Search,
+  UserPlus
 } from "lucide-react";
 import maplibregl from "maplibre-gl";
 import { type PointerEvent, useEffect, useMemo, useRef, useState } from "react";
@@ -27,7 +30,10 @@ import {
   getStatistics,
   getSummary,
   getTrend,
+  getAccess,
+  requestAccess,
   requestScene,
+  type SharedAccess,
   type HotspotBbox,
   type HotspotFilters
 } from "./api";
@@ -45,6 +51,13 @@ import type {
   SceneResponse,
   SourceFile
 } from "./types";
+import {
+  initializeAuthentication,
+  login,
+  logout,
+  register,
+  tokenProfile
+} from "./keycloak";
 
 const SATELLITES = ["snpp", "noaa20", "aqua", "tera", "landsat8"];
 const SATELLITE_COLORS: Record<string, string> = {
@@ -122,6 +135,11 @@ export default function App() {
   });
   const [isExporting, setIsExporting] = useState(false);
   const [currentCounts, setCurrentCounts] = useState({ clusters: 0, pixels: 0 });
+  const [authenticated, setAuthenticated] = useState(false);
+  const [access, setAccess] = useState<SharedAccess | null>(null);
+  const [accessRole, setAccessRole] = useState<"explorer" | "mage" | "sage">("explorer");
+  const [accessError, setAccessError] = useState("");
+  const [accessLoading, setAccessLoading] = useState(true);
   const activeFilters = useMemo<HotspotFilters>(
     () => ({
       kind,
@@ -173,6 +191,36 @@ export default function App() {
   // The map request is bbox-aware, so this count reflects the current viewport
   // while the metric cards below keep the full filtered totals.
   const visibleCount = hotspots?.total ?? hotspots?.features.length ?? 0;
+  const membership = access?.memberships.find(
+    (item) => item.application === "hotspot-new" && item.status === "active"
+  );
+
+  useEffect(() => {
+    void initializeAuthentication()
+      .then(async (isAuthenticated) => {
+        setAuthenticated(isAuthenticated);
+        if (isAuthenticated) {
+          setAccess(await getAccess());
+        }
+      })
+      .catch((error) => {
+        setAccessError(error instanceof Error ? error.message : "Authentication failed");
+      })
+      .finally(() => setAccessLoading(false));
+  }, []);
+
+  async function submitAccessRequest() {
+    setAccessLoading(true);
+    setAccessError("");
+    try {
+      await requestAccess(accessRole);
+      setAccess(await getAccess());
+    } catch (error) {
+      setAccessError(error instanceof Error ? error.message : "Access request failed");
+    } finally {
+      setAccessLoading(false);
+    }
+  }
 
   useEffect(() => {
     if (!mapNodeRef.current || mapRef.current) {
@@ -603,6 +651,48 @@ export default function App() {
 
         {!sidebarCollapsed ? (
         <>
+        <section className="panel access-panel">
+          {accessLoading ? <p>Checking account…</p> : null}
+          {!accessLoading && !authenticated ? (
+            <>
+              <strong>Satellite scene access</strong>
+              <p>Sign in to request imagery and download scene assets.</p>
+              <div className="access-actions">
+                <button onClick={() => void login()}><LogIn size={14} /> Sign in</button>
+                <button onClick={() => void register()}><UserPlus size={14} /> Register</button>
+              </div>
+            </>
+          ) : null}
+          {!accessLoading && authenticated && membership ? (
+            <>
+              <strong>{tokenProfile().name || tokenProfile().email}</strong>
+              <p>{membership.role} · {formatCount(membership.token_balance)} tokens</p>
+              <button onClick={() => void logout()}><LogOut size={14} /> Sign out</button>
+            </>
+          ) : null}
+          {!accessLoading && authenticated && !membership ? (
+            <>
+              <strong>{tokenProfile().name || tokenProfile().email}</strong>
+              {access?.pending_requests.some((item) => item.application === "hotspot-new") ? (
+                <p>Your Hotspot access request is awaiting approval.</p>
+              ) : (
+                <div className="access-request-row">
+                  <select
+                    value={accessRole}
+                    onChange={(event) => setAccessRole(event.target.value as typeof accessRole)}
+                  >
+                    <option value="explorer">Explorer</option>
+                    <option value="mage">Mage</option>
+                    <option value="sage">Sage</option>
+                  </select>
+                  <button onClick={() => void submitAccessRequest()}>Request access</button>
+                </div>
+              )}
+              <button className="link-button" onClick={() => void logout()}>Sign out</button>
+            </>
+          ) : null}
+          {accessError ? <p className="access-error">{accessError}</p> : null}
+        </section>
         <section className="panel metrics">
           <Metric icon={<Layers size={18} />} label="Clusters" value={currentCounts.clusters} />
           <Metric icon={<Flame size={18} />} label="Pixels" value={currentCounts.pixels} />

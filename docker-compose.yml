@@ -295,6 +295,14 @@ services:
       HOTSPOT_GEOCATALOG_API_URL: ${HOTSPOT_GEOCATALOG_API_URL:-http://host.docker.internal:8090/api/v1}
       HOTSPOT_GEOCATALOG_ACCESS_TOKEN: ${HOTSPOT_GEOCATALOG_ACCESS_TOKEN:-}
       HOTSPOT_GEOCATALOG_TIMEOUT_SECONDS: ${HOTSPOT_GEOCATALOG_TIMEOUT_SECONDS:-30}
+      HOTSPOT_GEOCATALOG_OIDC_TOKEN_URL: ${HOTSPOT_GEOCATALOG_OIDC_TOKEN_URL:-}
+      HOTSPOT_GEOCATALOG_OIDC_CLIENT_ID: ${HOTSPOT_GEOCATALOG_OIDC_CLIENT_ID:-hotspot-geocatalog-service}
+      HOTSPOT_GEOCATALOG_OIDC_CLIENT_SECRET: ${HOTSPOT_GEOCATALOG_OIDC_CLIENT_SECRET:-}
+      HOTSPOT_OIDC_ENABLED: ${HOTSPOT_OIDC_ENABLED:-false}
+      HOTSPOT_OIDC_ISSUER: ${HOTSPOT_OIDC_ISSUER:-}
+      HOTSPOT_OIDC_JWKS_URL: ${HOTSPOT_OIDC_JWKS_URL:-}
+      HOTSPOT_OIDC_CLIENT_ID: ${HOTSPOT_OIDC_CLIENT_ID:-hotspot-new}
+      HOTSPOT_ACCESS_MANAGEMENT_URL: ${HOTSPOT_ACCESS_MANAGEMENT_URL:-}
     ports:
       - "${HOTSPOT_API_PORT:-8000}:8000"
     depends_on:
@@ -302,12 +310,19 @@ services:
         condition: service_healthy
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    networks:
+      - default
+      - keycloak
     command: ["hotspot", "serve", "--host", "0.0.0.0", "--port", "8000"]
 
   frontend:
     build:
       context: .
       dockerfile: frontend/Dockerfile
+      args:
+        VITE_KEYCLOAK_URL: ${VITE_KEYCLOAK_URL:-https://geomimo-keycloak.brin.go.id}
+        VITE_KEYCLOAK_REALM: ${VITE_KEYCLOAK_REALM:-brin-geospatial}
+        VITE_KEYCLOAK_CLIENT_ID: ${VITE_KEYCLOAK_CLIENT_ID:-hotspot-new}
     logging: *log-rotation
     ports:
       - "${HOTSPOT_FRONTEND_PORT:-8080}:80"
@@ -406,3 +421,8 @@ services:
 
 volumes:
   postgres-data:
+
+networks:
+  keycloak:
+    external: true
+    name: ${KEYCLOAK_NETWORK:-brin-keycloak_keycloak}

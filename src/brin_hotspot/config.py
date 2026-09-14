@@ -61,11 +61,28 @@ class Settings(BaseSettings):
         default=SecretStr(""),
         alias="HOTSPOT_GEOCATALOG_ACCESS_TOKEN",
     )
+    geocatalog_oidc_token_url: str = Field(
+        default="",
+        alias="HOTSPOT_GEOCATALOG_OIDC_TOKEN_URL",
+    )
+    geocatalog_oidc_client_id: str = Field(
+        default="hotspot-geocatalog-service",
+        alias="HOTSPOT_GEOCATALOG_OIDC_CLIENT_ID",
+    )
+    geocatalog_oidc_client_secret: SecretStr = Field(
+        default=SecretStr(""),
+        alias="HOTSPOT_GEOCATALOG_OIDC_CLIENT_SECRET",
+    )
     geocatalog_timeout_seconds: float = Field(
         default=30,
         gt=0,
         alias="HOTSPOT_GEOCATALOG_TIMEOUT_SECONDS",
     )
+    oidc_enabled: bool = Field(default=False, alias="HOTSPOT_OIDC_ENABLED")
+    oidc_issuer: str = Field(default="", alias="HOTSPOT_OIDC_ISSUER")
+    oidc_jwks_url: str = Field(default="", alias="HOTSPOT_OIDC_JWKS_URL")
+    oidc_client_id: str = Field(default="hotspot-new", alias="HOTSPOT_OIDC_CLIENT_ID")
+    access_management_url: str = Field(default="", alias="HOTSPOT_ACCESS_MANAGEMENT_URL")
     hotspot_database: DatabaseSettings = Field(default_factory=DatabaseSettings)
     raster_database: RasterDatabaseSettings = Field(default_factory=RasterDatabaseSettings)
     paths: PathSettings = Field(default_factory=PathSettings)
@@ -90,6 +107,8 @@ class Settings(BaseSettings):
         payload = self.model_dump(mode="json")
         payload["hotspot_database"]["password"] = "********"
         payload["raster_database"]["password"] = "********"
+        payload["geocatalog_access_token"] = "********"
+        payload["geocatalog_oidc_client_secret"] = "********"
         return payload
 
     def sanitized_json(self) -> str:
