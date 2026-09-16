@@ -27,7 +27,7 @@ export function register() {
 }
 
 export function logout() {
-  return keycloak.logout({ redirectUri: window.location.origin });
+  return keycloak.logout({ redirectUri: `${window.location.origin}/` });
 }
 
 export async function accessToken() {
