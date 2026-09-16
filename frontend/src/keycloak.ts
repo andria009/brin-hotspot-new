@@ -12,7 +12,8 @@ export function initializeAuthentication() {
   initialization ??= keycloak.init({
     onLoad: "check-sso",
     pkceMethod: "S256",
-    checkLoginIframe: false
+    checkLoginIframe: false,
+    redirectUri: `${window.location.origin}/auth/callback`
   });
   return initialization;
 }
