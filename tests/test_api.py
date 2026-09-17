@@ -194,9 +194,10 @@ def test_hotspots_accepts_time_and_region_filters():
 
 def test_scene_resolve_proxies_request_to_geocatalog():
     class FakeGeoCatalogClient:
-        def request_scene(self, payload):
+        def request_scene(self, payload, user_token=None):
             assert payload["satellite"] == "snpp"
             assert payload["pixel_size_meters"] == 375
+            assert payload["acquire"] is False
             return {
                 "status": "ready",
                 "request_key": "request-1",

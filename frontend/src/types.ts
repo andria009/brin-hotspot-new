@@ -78,6 +78,7 @@ export type SceneResponse = {
   job: { id: string; status: string } | null;
   retry_after_seconds: number | null;
   reason: string | null;
+  can_acquire: boolean;
 };
 
 export type IngestionRun = {

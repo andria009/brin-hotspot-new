@@ -95,6 +95,7 @@ class SceneRequest(BaseModel):
     latitude: float = Field(ge=-90, le=90)
     scene_id: str | None = None
     pixel_size_meters: float = Field(gt=0, le=10_000)
+    acquire: bool = False
 
 
 class SceneResponse(BaseModel):
@@ -112,3 +113,4 @@ class SceneResponse(BaseModel):
     job: dict[str, Any] | None = None
     retry_after_seconds: int | None = None
     reason: str | None = None
+    can_acquire: bool = False

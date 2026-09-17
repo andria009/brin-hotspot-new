@@ -24,7 +24,7 @@ class GeoCatalogClient:
         self._cached_token_expires_at = 0.0
         self._timeout = settings.geocatalog_timeout_seconds
 
-    def request_scene(self, payload: dict) -> dict:
+    def request_scene(self, payload: dict, user_token: str | None = None) -> dict:
         access_token = self._service_access_token()
         request = Request(
             f"{self._base_url}/scene-requests",
@@ -33,6 +33,7 @@ class GeoCatalogClient:
                 "Accept": "application/json",
                 "Authorization": f"Bearer {access_token}",
                 "Content-Type": "application/json",
+                **({"X-Hotspot-User-Token": user_token} if user_token else {}),
             },
             method="POST",
         )

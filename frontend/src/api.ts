@@ -183,6 +183,7 @@ export async function requestScene(payload: {
   latitude: number;
   scene_id: string | null;
   pixel_size_meters: number;
+  acquire?: boolean;
 }): Promise<SceneResponse> {
   const token = await accessToken();
   const response = await fetch(`${API_BASE}/scenes/resolve`, {

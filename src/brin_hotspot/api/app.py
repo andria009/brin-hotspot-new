@@ -356,10 +356,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         client: Annotated[GeoCatalogClient, Depends(get_geocatalog_client)],
     ) -> dict:
         if resolved_settings.oidc_enabled:
-            _, identity = request_identity(request)
+            user_token, identity = request_identity(request)
             require_application_role(identity, "mage")
+        else:
+            user_token = None
         try:
-            return client.request_scene(payload.model_dump(mode="json"))
+            return client.request_scene(payload.model_dump(mode="json"), user_token=user_token)
         except GeoCatalogError as exc:
             raise HTTPException(status_code=502, detail=str(exc)) from exc
 

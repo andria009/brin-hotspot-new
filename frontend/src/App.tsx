@@ -1506,13 +1506,13 @@ function FeatureInspector({
       return;
     }
     const retry = window.setTimeout(
-      () => void loadScene(),
+      () => void loadScene(false),
       (scene.retry_after_seconds ?? 60) * 1000
     );
     return () => window.clearTimeout(retry);
   }, [scene]);
 
-  async function loadScene() {
+  async function loadScene(acquire = false) {
     if (!coordinates || !props.observed_at || !props.satellite) {
       return;
     }
@@ -1525,7 +1525,8 @@ function FeatureInspector({
         longitude: coordinates.longitude,
         latitude: coordinates.latitude,
         scene_id: props.scene_id ? String(props.scene_id) : null,
-        pixel_size_meters: SATELLITE_PIXEL_SIZE_METERS[String(props.satellite)] ?? 1000
+        pixel_size_meters: SATELLITE_PIXEL_SIZE_METERS[String(props.satellite)] ?? 1000,
+        acquire
       });
       setScene(resolved);
       if (resolved.status === "ready") {
@@ -1554,7 +1555,7 @@ function FeatureInspector({
       <button
         className="scene-request-button"
         disabled={sceneLoading || !coordinates || !props.observed_at}
-        onClick={() => void loadScene()}
+        onClick={() => void loadScene(false)}
       >
         {sceneLoading ? "Checking GeoCatalog…" : "Load satellite scene"}
       </button>
@@ -1562,6 +1563,12 @@ function FeatureInspector({
         <p className="scene-status">
           Scene ready. <a href={scene.asset_url} target="_blank" rel="noreferrer">Download radiance</a>
         </p>
+      ) : null}
+      {scene?.status === "ready" && scene.dataset ? (
+        <p className="scene-status">Catalog dataset: {scene.dataset.title}</p>
+      ) : null}
+      {scene?.status === "ready" && !scene.overlay_url ? (
+        <p className="scene-status">No map preview is available for this dataset.</p>
       ) : null}
       {scene?.status === "ready" && scene.bundle_url ? (
         <p className="scene-status">
@@ -1582,7 +1589,17 @@ function FeatureInspector({
         <p className="scene-status">GeoCatalog queued this scene for download and indexing.</p>
       ) : null}
       {scene?.status === "unavailable" ? (
-        <p className="scene-status scene-error">{scene.reason}</p>
+        <>
+          <p className="scene-status">{scene.reason}</p>
+          {scene.can_acquire ? (
+            <div className="scene-acquisition-choice">
+              <button disabled={sceneLoading} onClick={() => void loadScene(true)}>
+                {sceneLoading ? "Requesting…" : "Queue acquisition"}
+              </button>
+              <button disabled={sceneLoading} onClick={() => setScene(null)}>Not now</button>
+            </div>
+          ) : null}
+        </>
       ) : null}
       {sceneError ? <p className="scene-status scene-error">{sceneError}</p> : null}
     </div>
