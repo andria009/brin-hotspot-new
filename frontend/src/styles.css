@@ -846,8 +846,19 @@ button {
 
 .scene-status a,
 .scene-assets a,
-.scene-acquisition-choice button {
+.scene-acquisition-choice button,
+.scene-preview-toggle {
   font-size: 13px;
+}
+
+.scene-preview-toggle {
+  background: #fff;
+  border: 1px solid #cbd6df;
+  border-radius: 6px;
+  color: #163f69;
+  cursor: pointer;
+  margin-top: 10px;
+  padding: 7px 9px;
 }
 
 .scene-acquisition-choice {

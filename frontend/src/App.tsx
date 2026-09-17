@@ -280,6 +280,7 @@ export default function App() {
         }
       });
       mapRef.current?.on("click", HOTSPOT_FILL_LAYER, (event) => {
+        removeSceneOverlay(mapRef.current);
         setSelected(event.features?.[0] ?? null);
       });
       mapRef.current?.on("mouseenter", HOTSPOT_FILL_LAYER, () => {
@@ -867,10 +868,16 @@ export default function App() {
         )}
         {selected && (
           <FeatureInspector
-            key={String(selected.id)}
+            key={JSON.stringify([selected.id, selected.geometry, selected.properties?.scene_id, selected.properties?.observed_at])}
             feature={selected}
-            onClose={() => setSelected(null)}
-            onSceneReady={(scene) => showSceneOverlay(mapRef.current, scene)}
+            onClose={() => {
+              removeSceneOverlay(mapRef.current);
+              setSelected(null);
+            }}
+            onScenePreview={(scene) => {
+              if (scene) showSceneOverlay(mapRef.current, scene);
+              else removeSceneOverlay(mapRef.current);
+            }}
           />
         )}
         {bottomRailOpen && (
@@ -1489,17 +1496,18 @@ function Row({ title, meta }: { title: string; meta: string }) {
 function FeatureInspector({
   feature,
   onClose,
-  onSceneReady
+  onScenePreview
 }: {
   feature: GeoJSON.Feature;
   onClose: () => void;
-  onSceneReady: (scene: SceneResponse) => void;
+  onScenePreview: (scene: SceneResponse | null) => void;
 }) {
   const props = feature.properties ?? {};
   const coordinates = pointCoordinates(feature);
   const [scene, setScene] = useState<SceneResponse | null>(null);
   const [sceneError, setSceneError] = useState("");
   const [sceneLoading, setSceneLoading] = useState(false);
+  const [previewVisible, setPreviewVisible] = useState(false);
 
   useEffect(() => {
     if (scene?.status !== "pending") {
@@ -1518,6 +1526,8 @@ function FeatureInspector({
     }
     setSceneLoading(true);
     setSceneError("");
+    setPreviewVisible(false);
+    onScenePreview(null);
     try {
       const resolved = await requestScene({
         satellite: String(props.satellite),
@@ -1529,9 +1539,6 @@ function FeatureInspector({
         acquire
       });
       setScene(resolved);
-      if (resolved.status === "ready") {
-        onSceneReady(resolved);
-      }
     } catch (error) {
       setSceneError(error instanceof Error ? error.message : "Could not request satellite scene");
     } finally {
@@ -1561,14 +1568,32 @@ function FeatureInspector({
       </button>
       {scene?.status === "ready" && scene.asset_url ? (
         <p className="scene-status">
-          Scene ready. <a href={scene.asset_url} target="_blank" rel="noreferrer">Download radiance</a>
+          {scene.can_acquire ? "Radiance available." : "Scene ready."} <a href={scene.asset_url} target="_blank" rel="noreferrer">Download radiance</a>
         </p>
       ) : null}
       {scene?.status === "ready" && scene.dataset ? (
         <p className="scene-status">Catalog dataset: {scene.dataset.title}</p>
       ) : null}
-      {scene?.status === "ready" && !scene.overlay_url ? (
-        <p className="scene-status">No map preview is available for this dataset.</p>
+      {scene?.status === "ready" && (scene.reason || !scene.overlay_url) ? (
+        <p className="scene-status">{scene.reason || "No map preview is available for this dataset."}</p>
+      ) : null}
+      {scene?.status === "ready" && scene.overlay_url && scene.overlay_bbox ? (
+        <button
+          className="scene-preview-toggle"
+          role="switch"
+          aria-checked={previewVisible}
+          onClick={() => {
+            onScenePreview(previewVisible ? null : scene);
+            setPreviewVisible(!previewVisible);
+          }}
+        >
+          {previewVisible ? "Hide preview from map" : "Show preview on map"}
+        </button>
+      ) : null}
+      {scene?.status === "ready" && scene.can_acquire ? (
+        <button className="scene-preview-toggle" disabled={sceneLoading} onClick={() => void loadScene(true)}>
+          {sceneLoading ? "Requesting…" : "Re-acquire incomplete scene bundle"}
+        </button>
       ) : null}
       {scene?.status === "ready" && scene.bundle_url ? (
         <p className="scene-status">
@@ -1606,16 +1631,21 @@ function FeatureInspector({
   );
 }
 
-function showSceneOverlay(map: maplibregl.Map | null, scene: SceneResponse) {
-  if (!map || !scene.overlay_url || !scene.overlay_bbox) {
-    return;
-  }
+function removeSceneOverlay(map: maplibregl.Map | null) {
+  if (!map) return;
   if (map.getLayer(SCENE_OVERLAY_LAYER)) {
     map.removeLayer(SCENE_OVERLAY_LAYER);
   }
   if (map.getSource(SCENE_OVERLAY_SOURCE)) {
     map.removeSource(SCENE_OVERLAY_SOURCE);
   }
+}
+
+function showSceneOverlay(map: maplibregl.Map | null, scene: SceneResponse) {
+  if (!map || !scene.overlay_url || !scene.overlay_bbox) {
+    return;
+  }
+  removeSceneOverlay(map);
   const [west, south, east, north] = scene.overlay_bbox;
   map.addSource(SCENE_OVERLAY_SOURCE, {
     type: "image",
