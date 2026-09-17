@@ -666,7 +666,7 @@ export default function App() {
           {!accessLoading && authenticated && membership ? (
             <>
               <strong>{tokenProfile().name || tokenProfile().email}</strong>
-              <p>{membership.role} · {formatCount(membership.token_balance)} tokens</p>
+              <p>{membership.role}{membership.role === "mage" ? ` · ${formatCount(membership.token_balance)} tokens` : ""}</p>
               <button onClick={() => void logout()}><LogOut size={14} /> Sign out</button>
             </>
           ) : null}
