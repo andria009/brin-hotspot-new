@@ -2,7 +2,7 @@ from datetime import datetime
 
 from fastapi.testclient import TestClient
 
-from brin_hotspot.api.app import create_app, get_repository
+from brin_hotspot.api.app import create_app, get_geocatalog_client, get_repository
 from brin_hotspot.api.schemas import (
     HotspotStatisticsResponse,
     HotspotTrendResponse,
@@ -190,3 +190,37 @@ def test_hotspots_accepts_time_and_region_filters():
     assert repository.hotspot_kwargs["province"] == "Riau"
     assert repository.hotspot_kwargs["kecamatan"] == "Menteng"
     assert repository.hotspot_kwargs["bbox"] == (90.0, -10.0, 150.0, 10.0)
+
+
+def test_scene_resolve_proxies_request_to_geocatalog():
+    class FakeGeoCatalogClient:
+        def request_scene(self, payload, user_token=None):
+            assert payload["satellite"] == "snpp"
+            assert payload["pixel_size_meters"] == 375
+            assert payload["acquire"] is False
+            return {
+                "status": "ready",
+                "request_key": "request-1",
+                "satellite": "snpp",
+                "platform": "suomi-npp",
+                "asset_url": "http://localhost:8090/api/v1/datasets/dataset-1/download?ticket=x",
+            }
+
+    app = create_app()
+    app.dependency_overrides[get_geocatalog_client] = FakeGeoCatalogClient
+    client = TestClient(app)
+    response = client.post(
+        "/api/v1/scenes/resolve",
+        json={
+            "satellite": "snpp",
+            "observed_at": "2026-04-27T05:30:00",
+            "longitude": 120.5,
+            "latitude": -2.5,
+            "scene_id": "SNPP_20260427053000",
+            "pixel_size_meters": 375,
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "ready"
+    assert "ticket=x" in response.json()["asset_url"]

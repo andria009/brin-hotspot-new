@@ -8,12 +8,15 @@ import {
   Download,
   Flame,
   Layers,
+  LogIn,
+  LogOut,
   Map as MapIcon,
   PanelRightClose,
   PanelRightOpen,
   RefreshCw,
   Satellite,
-  Search
+  Search,
+  UserPlus
 } from "lucide-react";
 import maplibregl from "maplibre-gl";
 import { type PointerEvent, useEffect, useMemo, useRef, useState } from "react";
@@ -27,6 +30,10 @@ import {
   getStatistics,
   getSummary,
   getTrend,
+  getAccess,
+  requestAccess,
+  requestScene,
+  type SharedAccess,
   type HotspotBbox,
   type HotspotFilters
 } from "./api";
@@ -41,8 +48,16 @@ import type {
   IngestionRun,
   LocationOptions,
   OperationalSummary,
+  SceneResponse,
   SourceFile
 } from "./types";
+import {
+  initializeAuthentication,
+  login,
+  logout,
+  register,
+  tokenProfile
+} from "./keycloak";
 
 const SATELLITES = ["snpp", "noaa20", "aqua", "tera", "landsat8"];
 const SATELLITE_COLORS: Record<string, string> = {
@@ -52,17 +67,19 @@ const SATELLITE_COLORS: Record<string, string> = {
   tera: "#287c56",
   landsat8: "#6f4dbf"
 };
-const SATELLITE_PIXEL_RADIUS_METERS: Record<string, number> = {
-  snpp: 1125,
-  noaa20: 1125,
-  aqua: 3000,
-  tera: 3000,
-  landsat8: 90
+const SATELLITE_PIXEL_SIZE_METERS: Record<string, number> = {
+  snpp: 375,
+  noaa20: 375,
+  aqua: 1000,
+  tera: 1000,
+  landsat8: 30
 };
 // The confidence scale is discrete in the source data, but colors are interpolated
 // so the map and sidebar legend read as one continuous low-to-high risk ramp.
 const CONFIDENCE_VALUES = Array.from({ length: 10 }, (_, index) => index);
 const HOTSPOT_FILL_LAYER = "hotspot-footprints";
+const SCENE_OVERLAY_SOURCE = "geocatalog-scene-overlay";
+const SCENE_OVERLAY_LAYER = "geocatalog-scene-overlay";
 type Basemap = "street" | "satellite";
 type DetailSection = "status" | "runs" | "sources";
 type ScreenPoint = { x: number; y: number };
@@ -118,6 +135,11 @@ export default function App() {
   });
   const [isExporting, setIsExporting] = useState(false);
   const [currentCounts, setCurrentCounts] = useState({ clusters: 0, pixels: 0 });
+  const [authenticated, setAuthenticated] = useState(false);
+  const [access, setAccess] = useState<SharedAccess | null>(null);
+  const [accessRole, setAccessRole] = useState<"explorer" | "mage" | "sage">("explorer");
+  const [accessError, setAccessError] = useState("");
+  const [accessLoading, setAccessLoading] = useState(true);
   const activeFilters = useMemo<HotspotFilters>(
     () => ({
       kind,
@@ -169,6 +191,36 @@ export default function App() {
   // The map request is bbox-aware, so this count reflects the current viewport
   // while the metric cards below keep the full filtered totals.
   const visibleCount = hotspots?.total ?? hotspots?.features.length ?? 0;
+  const membership = access?.memberships.find(
+    (item) => item.application === "hotspot-new" && item.status === "active"
+  );
+
+  useEffect(() => {
+    void initializeAuthentication()
+      .then(async (isAuthenticated) => {
+        setAuthenticated(isAuthenticated);
+        if (isAuthenticated) {
+          setAccess(await getAccess());
+        }
+      })
+      .catch((error) => {
+        setAccessError(error instanceof Error ? error.message : "Authentication failed");
+      })
+      .finally(() => setAccessLoading(false));
+  }, []);
+
+  async function submitAccessRequest() {
+    setAccessLoading(true);
+    setAccessError("");
+    try {
+      await requestAccess(accessRole);
+      setAccess(await getAccess());
+    } catch (error) {
+      setAccessError(error instanceof Error ? error.message : "Access request failed");
+    } finally {
+      setAccessLoading(false);
+    }
+  }
 
   useEffect(() => {
     if (!mapNodeRef.current || mapRef.current) {
@@ -228,6 +280,7 @@ export default function App() {
         }
       });
       mapRef.current?.on("click", HOTSPOT_FILL_LAYER, (event) => {
+        removeSceneOverlay(mapRef.current);
         setSelected(event.features?.[0] ?? null);
       });
       mapRef.current?.on("mouseenter", HOTSPOT_FILL_LAYER, () => {
@@ -599,6 +652,48 @@ export default function App() {
 
         {!sidebarCollapsed ? (
         <>
+        <section className="panel access-panel">
+          {accessLoading ? <p>Checking account…</p> : null}
+          {!accessLoading && !authenticated ? (
+            <>
+              <strong>Satellite scene access</strong>
+              <p>Sign in to request imagery and download scene assets.</p>
+              <div className="access-actions">
+                <button onClick={() => void login()}><LogIn size={14} /> Sign in</button>
+                <button onClick={() => void register()}><UserPlus size={14} /> Register</button>
+              </div>
+            </>
+          ) : null}
+          {!accessLoading && authenticated && membership ? (
+            <>
+              <strong>{tokenProfile().name || tokenProfile().email}</strong>
+              <p>{membership.role}{membership.role === "mage" ? ` · ${formatCount(membership.token_balance)} tokens` : ""}</p>
+              <button onClick={() => void logout()}><LogOut size={14} /> Sign out</button>
+            </>
+          ) : null}
+          {!accessLoading && authenticated && !membership ? (
+            <>
+              <strong>{tokenProfile().name || tokenProfile().email}</strong>
+              {access?.pending_requests.some((item) => item.application === "hotspot-new") ? (
+                <p>Your Hotspot access request is awaiting approval.</p>
+              ) : (
+                <div className="access-request-row">
+                  <select
+                    value={accessRole}
+                    onChange={(event) => setAccessRole(event.target.value as typeof accessRole)}
+                  >
+                    <option value="explorer">Explorer</option>
+                    <option value="mage">Mage</option>
+                    <option value="sage">Sage</option>
+                  </select>
+                  <button onClick={() => void submitAccessRequest()}>Request access</button>
+                </div>
+              )}
+              <button className="link-button" onClick={() => void logout()}>Sign out</button>
+            </>
+          ) : null}
+          {accessError ? <p className="access-error">{accessError}</p> : null}
+        </section>
         <section className="panel metrics">
           <Metric icon={<Layers size={18} />} label="Clusters" value={currentCounts.clusters} />
           <Metric icon={<Flame size={18} />} label="Pixels" value={currentCounts.pixels} />
@@ -771,7 +866,20 @@ export default function App() {
             )}
           </div>
         )}
-        {selected && <FeatureInspector feature={selected} onClose={() => setSelected(null)} />}
+        {selected && (
+          <FeatureInspector
+            key={JSON.stringify([selected.id, selected.geometry, selected.properties?.scene_id, selected.properties?.observed_at])}
+            feature={selected}
+            onClose={() => {
+              removeSceneOverlay(mapRef.current);
+              setSelected(null);
+            }}
+            onScenePreview={(scene) => {
+              if (scene) showSceneOverlay(mapRef.current, scene);
+              else removeSceneOverlay(mapRef.current);
+            }}
+          />
+        )}
         {bottomRailOpen && (
           <section className="bottom-rail">
             <div className="statistics-grid">
@@ -1289,13 +1397,13 @@ function hotspotFootprint(
     return null;
   }
   const [longitude, latitude] = feature.geometry.coordinates;
-  const radiusMeters =
-    SATELLITE_PIXEL_RADIUS_METERS[feature.properties.satellite] ??
-    feature.properties.radius_meters ??
-    1000;
-  const actualHalfSideMeters = footprintHalfSideMeters(radiusMeters);
+  const pixelSizeMeters =
+    SATELLITE_PIXEL_SIZE_METERS[feature.properties.satellite] ??
+    (feature.properties.radius_meters ? feature.properties.radius_meters / 3 : 1000);
+  const actualHalfSideMeters = pixelSizeMeters / 2;
   const visibleHalfSideMeters = minimumVisibleHalfSideMeters(latitude, zoom);
-  const halfSideMeters = Math.max(actualHalfSideMeters, visibleHalfSideMeters);
+  const halfSideMeters =
+    zoom >= 12 ? actualHalfSideMeters : Math.max(actualHalfSideMeters, visibleHalfSideMeters);
   return {
     type: "Feature",
     id: feature.id,
@@ -1309,10 +1417,6 @@ function hotspotFootprint(
       coordinates: [squareCoordinates(longitude, latitude, halfSideMeters)]
     }
   };
-}
-
-function footprintHalfSideMeters(radiusMeters: number) {
-  return Math.max(radiusMeters / 6, 120);
 }
 
 function minimumVisibleHalfSideMeters(latitude: number, zoom: number) {
@@ -1389,12 +1493,62 @@ function Row({ title, meta }: { title: string; meta: string }) {
   );
 }
 
-function FeatureInspector({ feature, onClose }: { feature: GeoJSON.Feature; onClose: () => void }) {
+function FeatureInspector({
+  feature,
+  onClose,
+  onScenePreview
+}: {
+  feature: GeoJSON.Feature;
+  onClose: () => void;
+  onScenePreview: (scene: SceneResponse | null) => void;
+}) {
   const props = feature.properties ?? {};
   const coordinates = pointCoordinates(feature);
+  const [scene, setScene] = useState<SceneResponse | null>(null);
+  const [sceneError, setSceneError] = useState("");
+  const [sceneLoading, setSceneLoading] = useState(false);
+  const [previewVisible, setPreviewVisible] = useState(false);
+
+  useEffect(() => {
+    if (scene?.status !== "pending") {
+      return;
+    }
+    const retry = window.setTimeout(
+      () => void loadScene(false),
+      (scene.retry_after_seconds ?? 60) * 1000
+    );
+    return () => window.clearTimeout(retry);
+  }, [scene]);
+
+  async function loadScene(acquire = false) {
+    if (!coordinates || !props.observed_at || !props.satellite) {
+      return;
+    }
+    setSceneLoading(true);
+    setSceneError("");
+    setPreviewVisible(false);
+    onScenePreview(null);
+    try {
+      const resolved = await requestScene({
+        satellite: String(props.satellite),
+        observed_at: String(props.observed_at),
+        longitude: coordinates.longitude,
+        latitude: coordinates.latitude,
+        scene_id: props.scene_id ? String(props.scene_id) : null,
+        pixel_size_meters: SATELLITE_PIXEL_SIZE_METERS[String(props.satellite)] ?? 1000,
+        acquire
+      });
+      setScene(resolved);
+    } catch (error) {
+      setSceneError(error instanceof Error ? error.message : "Could not request satellite scene");
+    } finally {
+      setSceneLoading(false);
+    }
+  }
+
   return (
     <div className="inspector">
-      <button onClick={onClose} aria-label="Close">×</button>
+      <button className="inspector-close" onClick={onClose} aria-label="Close">×</button>
       <h2>{satelliteLabel(String(props.satellite ?? ""))} hotspot</h2>
       <dl>
         <dt>Coordinates</dt><dd>{formatCoordinates(coordinates)}</dd>
@@ -1405,8 +1559,129 @@ function FeatureInspector({ feature, onClose }: { feature: GeoJSON.Feature; onCl
         <dt>Kecamatan</dt><dd>{String(props.kecamatan ?? "-")}</dd>
         <dt>Scene</dt><dd>{String(props.scene_id ?? "-")}</dd>
       </dl>
+      <button
+        className="scene-request-button"
+        disabled={sceneLoading || !coordinates || !props.observed_at}
+        onClick={() => void loadScene(false)}
+      >
+        {sceneLoading ? "Checking GeoCatalog…" : "Load satellite scene"}
+      </button>
+      {scene?.status === "ready" && scene.asset_url ? (
+        <p className="scene-status">
+          {scene.can_acquire ? "Radiance available." : "Scene ready."} <a href={scene.asset_url} target="_blank" rel="noreferrer">Download radiance</a>
+        </p>
+      ) : null}
+      {scene?.status === "ready" && scene.dataset ? (
+        <p className="scene-status">Catalog dataset: {scene.dataset.title}</p>
+      ) : null}
+      {scene?.status === "ready" && (scene.reason || !scene.overlay_url) ? (
+        <p className="scene-status">{scene.reason || "No map preview is available for this dataset."}</p>
+      ) : null}
+      {scene?.status === "ready" && scene.overlay_url && scene.overlay_bbox ? (
+        <button
+          className="scene-preview-toggle"
+          role="switch"
+          aria-checked={previewVisible}
+          onClick={() => {
+            onScenePreview(previewVisible ? null : scene);
+            setPreviewVisible(!previewVisible);
+          }}
+        >
+          {previewVisible ? "Hide preview from map" : "Show preview on map"}
+        </button>
+      ) : null}
+      {scene?.status === "ready" && scene.can_acquire ? (
+        <button className="scene-preview-toggle" disabled={sceneLoading} onClick={() => void loadScene(true)}>
+          {sceneLoading ? "Requesting…" : "Re-acquire incomplete scene bundle"}
+        </button>
+      ) : null}
+      {scene?.status === "ready" && scene.bundle_url ? (
+        <p className="scene-status">
+          <a href={scene.bundle_url}>Download complete bundle (.tar)</a>
+        </p>
+      ) : null}
+      {scene?.status === "ready" && scene.assets.length > 0 ? (
+        <ul className="scene-assets">
+          {scene.assets.map((asset) => (
+            <li key={asset.id}>
+              <a href={asset.download_url}>{sceneAssetLabel(asset.role)}</a>
+              <span>{asset.title}</span>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      {scene?.status === "pending" ? (
+        <p className="scene-status">GeoCatalog queued this scene for download and indexing.</p>
+      ) : null}
+      {scene?.status === "unavailable" ? (
+        <>
+          <p className="scene-status">{scene.reason}</p>
+          {scene.can_acquire ? (
+            <div className="scene-acquisition-choice">
+              <button disabled={sceneLoading} onClick={() => void loadScene(true)}>
+                {sceneLoading ? "Requesting…" : "Queue acquisition"}
+              </button>
+              <button disabled={sceneLoading} onClick={() => setScene(null)}>Not now</button>
+            </div>
+          ) : null}
+        </>
+      ) : null}
+      {sceneError ? <p className="scene-status scene-error">{sceneError}</p> : null}
     </div>
   );
+}
+
+function removeSceneOverlay(map: maplibregl.Map | null) {
+  if (!map) return;
+  if (map.getLayer(SCENE_OVERLAY_LAYER)) {
+    map.removeLayer(SCENE_OVERLAY_LAYER);
+  }
+  if (map.getSource(SCENE_OVERLAY_SOURCE)) {
+    map.removeSource(SCENE_OVERLAY_SOURCE);
+  }
+}
+
+function showSceneOverlay(map: maplibregl.Map | null, scene: SceneResponse) {
+  if (!map || !scene.overlay_url || !scene.overlay_bbox) {
+    return;
+  }
+  removeSceneOverlay(map);
+  const [west, south, east, north] = scene.overlay_bbox;
+  map.addSource(SCENE_OVERLAY_SOURCE, {
+    type: "image",
+    url: scene.overlay_url,
+    coordinates: [
+      [west, north],
+      [east, north],
+      [east, south],
+      [west, south]
+    ]
+  });
+  map.addLayer(
+    {
+      id: SCENE_OVERLAY_LAYER,
+      type: "raster",
+      source: SCENE_OVERLAY_SOURCE,
+      paint: { "raster-opacity": 0.82 }
+    },
+    HOTSPOT_FILL_LAYER
+  );
+  map.fitBounds(
+    [
+      [west, south],
+      [east, north]
+    ],
+    { padding: 64, maxZoom: 12 }
+  );
+}
+
+function sceneAssetLabel(role: string) {
+  return {
+    radiance: "Radiance",
+    geolocation: "Geolocation",
+    overlay: "Map overlay GeoTIFF",
+    "overlay-preview": "Map preview PNG"
+  }[role] ?? "Scene asset";
 }
 
 function pointCoordinates(feature: GeoJSON.Feature) {

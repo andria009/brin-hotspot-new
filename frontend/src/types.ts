@@ -50,6 +50,37 @@ export type HotspotCollection = GeoJSON.FeatureCollection<
   total?: number;
 };
 
+export type SceneResponse = {
+  status: "ready" | "pending" | "unavailable";
+  request_key: string;
+  satellite: string;
+  platform: string;
+  dataset: {
+    id: string;
+    title: string;
+    file_name: string;
+    acquisition_start: string | null;
+    bbox: [number, number, number, number] | null;
+  } | null;
+  asset_url: string | null;
+  assets: {
+    id: string;
+    role: string;
+    title: string;
+    media_type: string;
+    bbox: [number, number, number, number] | null;
+    download_url: string;
+  }[];
+  bundle_url: string | null;
+  overlay_url: string | null;
+  overlay_bbox: [number, number, number, number] | null;
+  expires_in_seconds: number | null;
+  job: { id: string; status: string } | null;
+  retry_after_seconds: number | null;
+  reason: string | null;
+  can_acquire: boolean;
+};
+
 export type IngestionRun = {
   id: string;
   satellite: string;

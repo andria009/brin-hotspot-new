@@ -86,3 +86,31 @@ class GeoJsonFeatureCollection(BaseModel):
     type: Literal["FeatureCollection"] = "FeatureCollection"
     total: int = 0
     features: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class SceneRequest(BaseModel):
+    satellite: str
+    observed_at: datetime
+    longitude: float = Field(ge=-180, le=180)
+    latitude: float = Field(ge=-90, le=90)
+    scene_id: str | None = None
+    pixel_size_meters: float = Field(gt=0, le=10_000)
+    acquire: bool = False
+
+
+class SceneResponse(BaseModel):
+    status: Literal["ready", "pending", "unavailable"]
+    request_key: str
+    satellite: str
+    platform: str
+    dataset: dict[str, Any] | None = None
+    asset_url: str | None = None
+    assets: list[dict[str, Any]] = Field(default_factory=list)
+    bundle_url: str | None = None
+    overlay_url: str | None = None
+    overlay_bbox: list[float] | None = None
+    expires_in_seconds: int | None = None
+    job: dict[str, Any] | None = None
+    retry_after_seconds: int | None = None
+    reason: str | None = None
+    can_acquire: bool = False

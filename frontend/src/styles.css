@@ -809,7 +809,7 @@ button {
   z-index: 3;
 }
 
-.inspector button {
+.inspector-close {
   background: #eef3f7;
   border: 0;
   border-radius: 50%;
@@ -818,6 +818,125 @@ button {
   right: 10px;
   top: 10px;
   width: 28px;
+}
+
+.inspector .scene-request-button {
+  background: #163f69;
+  border: 0;
+  border-radius: 6px;
+  color: white;
+  cursor: pointer;
+  font-weight: 700;
+  margin-top: 16px;
+  padding: 9px 12px;
+  width: 100%;
+}
+
+.inspector .scene-request-button:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
+.scene-status {
+  color: #34495e;
+  font-size: 12px;
+  line-height: 1.45;
+  margin: 10px 0 0;
+}
+
+.scene-status a,
+.scene-assets a,
+.scene-acquisition-choice button,
+.scene-preview-toggle {
+  font-size: 13px;
+}
+
+.scene-preview-toggle {
+  background: #fff;
+  border: 1px solid #cbd6df;
+  border-radius: 6px;
+  color: #163f69;
+  cursor: pointer;
+  margin-top: 10px;
+  padding: 7px 9px;
+}
+
+.scene-acquisition-choice {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.scene-acquisition-choice button {
+  cursor: pointer;
+}
+
+.access-panel {
+  display: grid;
+  gap: 8px;
+}
+
+.access-panel p {
+  color: #637486;
+  font-size: 12px;
+  margin: 0;
+}
+
+.access-actions,
+.access-request-row {
+  display: flex;
+  gap: 8px;
+}
+
+.access-panel button,
+.access-panel select {
+  align-items: center;
+  border: 1px solid #cbd6df;
+  border-radius: 7px;
+  display: inline-flex;
+  font: inherit;
+  gap: 5px;
+  padding: 7px 9px;
+}
+
+.access-panel button {
+  background: #fff;
+  cursor: pointer;
+}
+
+.access-panel .access-error {
+  color: #a32833;
+}
+
+.access-panel .link-button {
+  border: 0;
+  color: #315b7d;
+  padding-left: 0;
+}
+
+.scene-error {
+  color: #a32833;
+}
+
+.scene-assets {
+  list-style: none;
+  margin: 10px 0 0;
+  max-height: 132px;
+  overflow: auto;
+  padding: 0;
+}
+
+.scene-assets li {
+  border-top: 1px solid #e6ebf0;
+  display: grid;
+  gap: 2px;
+  padding: 7px 0;
+}
+
+.scene-assets span {
+  color: #6a7888;
+  font-size: 12px;
+  overflow-wrap: anywhere;
 }
 
 .inspector h2 {
