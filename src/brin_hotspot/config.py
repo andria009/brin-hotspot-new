@@ -83,6 +83,10 @@ class Settings(BaseSettings):
     oidc_jwks_url: str = Field(default="", alias="HOTSPOT_OIDC_JWKS_URL")
     oidc_client_id: str = Field(default="hotspot-new", alias="HOTSPOT_OIDC_CLIENT_ID")
     access_management_url: str = Field(default="", alias="HOTSPOT_ACCESS_MANAGEMENT_URL")
+    cors_origins: str = Field(
+        default="https://geomimo-hotspot.brin.go.id",
+        alias="HOTSPOT_CORS_ORIGINS",
+    )
     hotspot_database: DatabaseSettings = Field(default_factory=DatabaseSettings)
     raster_database: RasterDatabaseSettings = Field(default_factory=RasterDatabaseSettings)
     paths: PathSettings = Field(default_factory=PathSettings)
@@ -93,6 +97,10 @@ class Settings(BaseSettings):
         extra="ignore",
         populate_by_name=True,
     )
+
+    @property
+    def cors_origin_list(self) -> list[str]:
+        return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
 
     def ensure_runtime_directories(self) -> None:
         """Create writable runtime directories before commands produce output."""

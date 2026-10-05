@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from collections.abc import Sequence
 from datetime import datetime
+from pathlib import PurePosixPath
 from typing import Any, Literal
 
 import psycopg
@@ -358,7 +359,7 @@ class ReadOnlyHotspotRepository:
                         status=row[2],
                         started_at=row[3],
                         finished_at=row[4],
-                        source_path=row[5],
+                        source_path=public_file_names(row[5]),
                         message=row[6],
                     )
                     for row in cursor.fetchall()
@@ -387,7 +388,7 @@ class ReadOnlyHotspotRepository:
                 return [
                     SourceFileResponse(
                         satellite=row[0],
-                        path=row[1],
+                        path=public_file_names(row[1]),
                         scene_id=row[2],
                         observed_at=row[3],
                         status=row[4],
@@ -691,3 +692,10 @@ def _hotspot_feature(*, kind: HotspotKind, id_column: str, row) -> dict[str, Any
             "scene_id": scene_id,
         },
     }
+
+
+def public_file_names(paths: str | None) -> str | None:
+    """Reduce comma-separated server paths to file or folder names for the public API."""
+    if not paths:
+        return paths
+    return ",".join(PurePosixPath(path.strip()).name for path in paths.split(","))

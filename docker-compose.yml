@@ -11,9 +11,9 @@ services:
     environment:
       POSTGRES_DB: hotspot
       POSTGRES_USER: hotspot
-      POSTGRES_PASSWORD: hotspot_dev
+      POSTGRES_PASSWORD: ${HOTSPOT_DB_PASSWORD:?set HOTSPOT_DB_PASSWORD in .env}
     ports:
-      - "5432:5432"
+      - "${HOTSPOT_PRIVATE_BIND_ADDRESS:-127.0.0.1}:${HOTSPOT_DB_HOST_PORT:-5432}:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
       - ./db/init:/docker-entrypoint-initdb.d:ro
@@ -40,7 +40,7 @@ services:
       HOTSPOT_DB_PORT: ${HOTSPOT_DB_PORT:-5432}
       HOTSPOT_DB_NAME: ${HOTSPOT_DB_NAME:-hotspot}
       HOTSPOT_DB_USER: ${HOTSPOT_DB_USER:-hotspot}
-      HOTSPOT_DB_PASSWORD: ${HOTSPOT_DB_PASSWORD:-hotspot_dev}
+      HOTSPOT_DB_PASSWORD: ${HOTSPOT_DB_PASSWORD:?set HOTSPOT_DB_PASSWORD in .env}
       HOTSPOT_RASTER_DB_NAME: ${HOTSPOT_RASTER_DB_NAME:-raster}
       HOTSPOT_INPUT_DIR: ${HOTSPOT_INPUT_DIR:-/app/data/input}
       HOTSPOT_OUTPUT_DIR: ${HOTSPOT_OUTPUT_DIR:-/app/data/output}
@@ -80,7 +80,7 @@ services:
       HOTSPOT_DB_PORT: ${HOTSPOT_DB_PORT:-5432}
       HOTSPOT_DB_NAME: ${HOTSPOT_DB_NAME:-hotspot}
       HOTSPOT_DB_USER: ${HOTSPOT_DB_USER:-hotspot}
-      HOTSPOT_DB_PASSWORD: ${HOTSPOT_DB_PASSWORD:-hotspot_dev}
+      HOTSPOT_DB_PASSWORD: ${HOTSPOT_DB_PASSWORD:?set HOTSPOT_DB_PASSWORD in .env}
       HOTSPOT_RASTER_DB_NAME: ${HOTSPOT_RASTER_DB_NAME:-raster}
       HOTSPOT_INPUT_DIR: ${HOTSPOT_INPUT_DIR:-/app/data/input}
       HOTSPOT_OUTPUT_DIR: ${HOTSPOT_OUTPUT_DIR:-/app/data/output}
@@ -137,7 +137,7 @@ services:
       HOTSPOT_DB_PORT: ${HOTSPOT_DB_PORT:-5432}
       HOTSPOT_DB_NAME: ${HOTSPOT_DB_NAME:-hotspot}
       HOTSPOT_DB_USER: ${HOTSPOT_DB_USER:-hotspot}
-      HOTSPOT_DB_PASSWORD: ${HOTSPOT_DB_PASSWORD:-hotspot_dev}
+      HOTSPOT_DB_PASSWORD: ${HOTSPOT_DB_PASSWORD:?set HOTSPOT_DB_PASSWORD in .env}
       HOTSPOT_RASTER_DB_NAME: ${HOTSPOT_RASTER_DB_NAME:-raster}
       HOTSPOT_INPUT_DIR: ${HOTSPOT_INPUT_DIR:-/app/data/input}
       HOTSPOT_OUTPUT_DIR: ${HOTSPOT_OUTPUT_DIR:-/app/data/output}
@@ -189,7 +189,7 @@ services:
       HOTSPOT_DB_PORT: ${HOTSPOT_DB_PORT:-5432}
       HOTSPOT_DB_NAME: ${HOTSPOT_DB_NAME:-hotspot}
       HOTSPOT_DB_USER: ${HOTSPOT_DB_USER:-hotspot}
-      HOTSPOT_DB_PASSWORD: ${HOTSPOT_DB_PASSWORD:-hotspot_dev}
+      HOTSPOT_DB_PASSWORD: ${HOTSPOT_DB_PASSWORD:?set HOTSPOT_DB_PASSWORD in .env}
       HOTSPOT_RASTER_DB_NAME: ${HOTSPOT_RASTER_DB_NAME:-raster}
       HOTSPOT_INPUT_DIR: ${HOTSPOT_INPUT_DIR:-/app/data/input}
       HOTSPOT_OUTPUT_DIR: ${HOTSPOT_OUTPUT_DIR:-/app/data/output}
@@ -239,7 +239,7 @@ services:
       HOTSPOT_DB_PORT: ${HOTSPOT_DB_PORT:-5432}
       HOTSPOT_DB_NAME: ${HOTSPOT_DB_NAME:-hotspot}
       HOTSPOT_DB_USER: ${HOTSPOT_DB_USER:-hotspot}
-      HOTSPOT_DB_PASSWORD: ${HOTSPOT_DB_PASSWORD:-hotspot_dev}
+      HOTSPOT_DB_PASSWORD: ${HOTSPOT_DB_PASSWORD:?set HOTSPOT_DB_PASSWORD in .env}
       HOTSPOT_RASTER_DB_NAME: ${HOTSPOT_RASTER_DB_NAME:-raster}
       HOTSPOT_INPUT_DIR: ${HOTSPOT_INPUT_DIR:-/app/data/input}
       HOTSPOT_OUTPUT_DIR: ${HOTSPOT_OUTPUT_DIR:-/app/data/output}
@@ -287,7 +287,7 @@ services:
       HOTSPOT_DB_PORT: ${HOTSPOT_DB_PORT:-5432}
       HOTSPOT_DB_NAME: ${HOTSPOT_DB_NAME:-hotspot}
       HOTSPOT_DB_USER: ${HOTSPOT_DB_USER:-hotspot}
-      HOTSPOT_DB_PASSWORD: ${HOTSPOT_DB_PASSWORD:-hotspot_dev}
+      HOTSPOT_DB_PASSWORD: ${HOTSPOT_DB_PASSWORD:?set HOTSPOT_DB_PASSWORD in .env}
       HOTSPOT_RASTER_DB_NAME: ${HOTSPOT_RASTER_DB_NAME:-raster}
       HOTSPOT_INPUT_DIR: ${HOTSPOT_INPUT_DIR:-/app/data/input}
       HOTSPOT_OUTPUT_DIR: ${HOTSPOT_OUTPUT_DIR:-/app/data/output}
@@ -304,7 +304,7 @@ services:
       HOTSPOT_OIDC_CLIENT_ID: ${HOTSPOT_OIDC_CLIENT_ID:-hotspot-new}
       HOTSPOT_ACCESS_MANAGEMENT_URL: ${HOTSPOT_ACCESS_MANAGEMENT_URL:-}
     ports:
-      - "${HOTSPOT_API_PORT:-8000}:8000"
+      - "${HOTSPOT_PRIVATE_BIND_ADDRESS:-127.0.0.1}:${HOTSPOT_API_PORT:-8000}:8000"
     depends_on:
       db:
         condition: service_healthy

@@ -56,7 +56,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.settings = resolved_settings
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],
+        allow_origins=resolved_settings.cors_origin_list,
         allow_credentials=False,
         allow_methods=["GET", "POST", "OPTIONS"],
         allow_headers=["*"],
@@ -208,16 +208,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             Query(description="Repeated west,south,east,north values."),
         ] = None,
         limit: Annotated[
-            int | None,
+            int,
             Query(
                 ge=1,
                 le=100000,
                 description=(
-                    "Optional maximum returned features. "
-                    "Omit to return all matching hotspots."
+                    "Maximum returned features, newest first. `total` still "
+                    "counts every match."
                 ),
             ),
-        ] = None,
+        ] = 100000,
         cluster_projection: Annotated[
             Literal["latitude_adjusted", "epsg4087"],
             Query(),

@@ -595,7 +595,7 @@ curl "http://localhost:8000/api/v1/source-files?status=failed&limit=20"
 
 `/api/v1/hotspots` returns a GeoJSON `FeatureCollection` with:
 
-- `features`: all matching map features by default, or the bounded subset when a `limit` is requested.
+- `features`: matching map features, newest first, capped at `limit` (default and maximum 100,000).
 - `total`: the actual number of matching clusters or pixels after filters.
 
 The hotspot endpoint supports these read-only filters:
@@ -728,7 +728,102 @@ docker compose logs --tail 200 modis-converter-tera-service
 
 Copy `.env.example` to `.env` and adjust values for the local environment.
 
+`HOTSPOT_DB_PASSWORD` is required; Compose refuses to start without it. Generate one with `openssl rand -hex 32` before the database volume is first created. Changing it later needs `ALTER ROLE` as well, because PostgreSQL only reads `POSTGRES_PASSWORD` when the volume is empty (see the [system migration note](https://github.com/andria009/brin-geo-keycloak/blob/main/MIGRATION.md#rotate-a-database-password)).
+
+The database (`5432`) and API (`8000`) ports are published on `127.0.0.1` only (`HOTSPOT_PRIVATE_BIND_ADDRESS`). Only the frontend port `8080` listens on the network, for the Caddy proxy. To reach the database from a workstation, use an SSH tunnel:
+
+```bash
+ssh -L 5432:127.0.0.1:5432 user@10.28.12.101
+```
+
+`HOTSPOT_CORS_ORIGINS` lists the browser origins allowed to call the API cross-origin (default `https://geomimo-hotspot.brin.go.id`).
+
 No credentials should be committed to this repository.
+
+## Backup and Restore
+
+### What to back up
+
+| Item | Location | Needed for restore |
+|---|---|---|
+| `hotspot` database (detections, clusters, runs, reference boundaries) | `db` service | Yes |
+| `raster` database (raster footprint metadata) | `db` service, same PostgreSQL instance | Yes |
+| `.env` | repository root | Yes. It holds the database password and Keycloak client secrets; store it encrypted or in a password manager |
+| `data/output/` | host | Optional. Converted MODIS CSVs and tiles can be regenerated from `/mnt/geomimo-data` |
+
+Not covered here: source imagery under `/mnt/geomimo-data` (read-only NAS mount), `data/reference/` (tracked in git) and `logs/`.
+
+### Take a backup
+
+Run from the repository directory on the server. Each dump is written to a temporary file first, so a failed dump never replaces a good one:
+
+```bash
+mkdir -p backups
+docker compose exec -T db pg_dump -U hotspot -Fc hotspot > backups/hotspot.tmp && mv backups/hotspot.tmp backups/hotspot-$(date +%F).dump
+docker compose exec -T db pg_dump -U hotspot -Fc raster > backups/raster.tmp && mv backups/raster.tmp backups/raster-$(date +%F).dump
+```
+
+Check that a dump is readable:
+
+```bash
+docker compose exec -T db pg_restore --list < backups/hotspot-$(date +%F).dump | head
+```
+
+### Nightly backups
+
+Add to the deploy user's crontab (`crontab -e`). Cron needs `%` escaped as `\%`. Keeps 14 days:
+
+```cron
+30 1 * * * cd /path/to/hotspot-new && mkdir -p backups && docker compose exec -T db pg_dump -U hotspot -Fc hotspot > backups/hotspot.tmp && mv backups/hotspot.tmp backups/hotspot-$(date +\%F).dump && docker compose exec -T db pg_dump -U hotspot -Fc raster > backups/raster.tmp && mv backups/raster.tmp backups/raster-$(date +\%F).dump && find backups -name '*.dump' -mtime +14 -delete
+```
+
+Copy the dumps to another machine as well; a disk failure takes local dumps with it:
+
+```bash
+rsync -a backups/ backup-host:/srv/backups/hotspot-new/
+```
+
+### Restore
+
+Restoring replaces the current databases. Stop every service, then start only the database:
+
+```bash
+docker compose --profile service stop
+docker compose up -d db
+```
+
+Recreate and restore each database (replace the dates):
+
+```bash
+docker compose exec -T db dropdb -U hotspot --if-exists hotspot
+docker compose exec -T db createdb -U hotspot hotspot
+docker compose exec -T db pg_restore -U hotspot -d hotspot --no-owner < backups/hotspot-YYYY-MM-DD.dump
+
+docker compose exec -T db dropdb -U hotspot --if-exists raster
+docker compose exec -T db createdb -U hotspot raster
+docker compose exec -T db pg_restore -U hotspot -d raster --no-owner < backups/raster-YYYY-MM-DD.dump
+```
+
+Start everything and check the data:
+
+```bash
+docker compose --profile service up -d
+curl -fsS http://127.0.0.1:8000/api/v1/summary
+```
+
+## Migrating to a New Server
+
+Hotspot-new should run on the same host as the Keycloak stack. Its `api` service joins the `brin-keycloak_keycloak` Docker network and reaches Keycloak and Access Management by container name, and Caddy reaches the frontend through `host.docker.internal:8080`. When moving the whole system, follow the order in the [system migration note](https://github.com/andria009/brin-geo-keycloak/blob/main/MIGRATION.md).
+
+1. **Prepare the new host.** Install Docker with the Compose plugin and mount `/mnt/geomimo-data` at the same path. Install the GeoMIMO CA certificate (see the Keycloak README). Start the Keycloak stack first.
+2. **Install the same code version.** On the old host, note the commit with `git rev-parse HEAD`. Clone the repository on the new host and check out that commit.
+3. **Copy configuration.** Copy `.env` with `scp` and run `chmod 600 .env`. Optionally `rsync -a data/output/ new-host:/path/to/hotspot-new/data/output/`.
+4. **Freeze the old host and take a final backup.** Run `docker compose --profile service stop` and `docker compose up -d db`, then follow [Take a backup](#take-a-backup). Copy the dumps to the new host's `backups/` directory.
+5. **Restore on the new host.** Start the database with `docker compose up -d db`; the init scripts create empty `hotspot` and `raster` databases. Then follow [Restore](#restore), which drops and recreates them from the dumps.
+6. **Build and start.** Run `docker compose --profile service up -d --build`.
+7. **Repoint the proxy.** If the host address changed, update the Caddy site and DNS or hosts entries as described in the system migration note.
+8. **Verify.** Open `https://geomimo-hotspot.brin.go.id`, sign in, and check that `/api/v1/summary` shows recent observations and new ingestion runs appear.
+9. **Keep the old host stopped but intact** for at least a week so you can roll back.
 
 ## License
 

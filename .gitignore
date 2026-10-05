@@ -37,3 +37,6 @@ logs/*
 .vscode/
 *.swp
 *.swo
+
+# Database dumps and volume archives (see README "Backup and restore")
+backups/

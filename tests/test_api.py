@@ -190,6 +190,7 @@ def test_hotspots_accepts_time_and_region_filters():
     assert repository.hotspot_kwargs["province"] == "Riau"
     assert repository.hotspot_kwargs["kecamatan"] == "Menteng"
     assert repository.hotspot_kwargs["bbox"] == (90.0, -10.0, 150.0, 10.0)
+    assert repository.hotspot_kwargs["limit"] == 100000
 
 
 def test_scene_resolve_proxies_request_to_geocatalog():
@@ -224,3 +225,23 @@ def test_scene_resolve_proxies_request_to_geocatalog():
     assert response.status_code == 200
     assert response.json()["status"] == "ready"
     assert "ticket=x" in response.json()["asset_url"]
+
+
+def test_cors_allows_only_configured_origins():
+    from brin_hotspot.config import Settings
+
+    client = TestClient(create_app(Settings(HOTSPOT_CORS_ORIGINS="https://geomimo-hotspot.brin.go.id")))
+
+    allowed = client.get("/api/v1/health", headers={"Origin": "https://geomimo-hotspot.brin.go.id"})
+    blocked = client.get("/api/v1/health", headers={"Origin": "https://evil.example"})
+
+    assert allowed.headers["access-control-allow-origin"] == "https://geomimo-hotspot.brin.go.id"
+    assert "access-control-allow-origin" not in blocked.headers
+
+
+def test_public_file_names_hide_server_directories():
+    from brin_hotspot.api.repository import public_file_names
+
+    assert public_file_names("/app/data/input/snpp/2021/AFIMG_npp.txt") == "AFIMG_npp.txt"
+    assert public_file_names("/app/out/aqua/original,/app/out/aqua/buffer") == "original,buffer"
+    assert public_file_names(None) is None
