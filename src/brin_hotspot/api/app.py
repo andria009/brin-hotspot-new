@@ -357,7 +357,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     ) -> dict:
         if resolved_settings.oidc_enabled:
             user_token, identity = request_identity(request)
-            require_application_role(identity, "mage")
+            # Any role gets the map preview; GeoCatalog keeps raw files and acquisition to Mage+.
+            require_application_role(identity, "explorer")
         else:
             user_token = None
         try:

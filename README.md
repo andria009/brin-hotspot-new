@@ -643,6 +643,7 @@ Map and filter features:
 - selected-region highlighting with non-selected hotspots greyed out
 - zoom-aware square hotspot footprints for pixel and cluster visualization
 - stacked bar chart for hotspot counts by administrative level and selected satellites
+- hotspot inspector "Load satellite scene": any signed-in role sees a 50 km fire false-colour image (VIIRS I4/I2/I1 or MODIS 22/2/1) rendered by GeoCatalog from the ground-station pass; Mage, Sage and God also get raw files and NASA acquisition, with Mage paying tokens
 - daily trend line chart for hotspot counts by selected satellites plus total
 
 The frontend also works with mock data when the API is unavailable, which keeps UI development possible before a local database is populated.

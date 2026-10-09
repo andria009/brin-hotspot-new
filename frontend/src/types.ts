@@ -75,7 +75,7 @@ export type SceneResponse = {
   overlay_url: string | null;
   overlay_bbox: [number, number, number, number] | null;
   expires_in_seconds: number | null;
-  job: { id: string; status: string } | null;
+  job: { id: string; status: string; provider?: string } | null;
   retry_after_seconds: number | null;
   reason: string | null;
   can_acquire: boolean;

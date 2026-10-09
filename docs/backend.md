@@ -330,7 +330,7 @@ Generate XYZ tiles:
 hotspot raster tile --input-dir data/input/rasters --output-dir data/output/tiles --zoom 5-12
 ```
 
-Raster support currently indexes metadata and can generate tiles. Loading actual source scenes as map overlays requires scene indexing and tile-serving integration beyond the current frontend basemap switcher.
+Raster support currently indexes metadata and can generate tiles. Hotspot scene overlays do not use these tiles: `POST /api/v1/scenes/resolve` asks GeoCatalog, which renders a fire preview from the ground-station pass (see the GeoCatalog README, "Hotspot fire previews from the ground station").
 
 ## API Layer
 

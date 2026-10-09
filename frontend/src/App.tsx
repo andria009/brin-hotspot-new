@@ -1611,7 +1611,11 @@ function FeatureInspector({
         </ul>
       ) : null}
       {scene?.status === "pending" ? (
-        <p className="scene-status">GeoCatalog queued this scene for download and indexing.</p>
+        <p className="scene-status">
+          {scene.job?.provider === "local"
+            ? "GeoCatalog is rendering the fire image from the ground-station pass…"
+            : "GeoCatalog queued this scene for download and indexing."}
+        </p>
       ) : null}
       {scene?.status === "unavailable" ? (
         <>

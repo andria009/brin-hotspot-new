@@ -227,6 +227,43 @@ def test_scene_resolve_proxies_request_to_geocatalog():
     assert "ticket=x" in response.json()["asset_url"]
 
 
+def test_scene_resolve_lets_any_signed_in_role_preview(monkeypatch):
+    from brin_hotspot.api import app as app_module
+    from brin_hotspot.auth import Identity
+    from brin_hotspot.config import Settings
+
+    forwarded = []
+
+    class FakeGeoCatalogClient:
+        def request_scene(self, payload, user_token=None):
+            forwarded.append(user_token)
+            return {"status": "pending", "request_key": "r", "satellite": "noaa20",
+                    "platform": "noaa-20", "retry_after_seconds": 15}
+
+    roles = {"explorer-token": "explorer", "no-role-token": None}
+    monkeypatch.setattr(
+        app_module,
+        "decode_access_token",
+        lambda token, _settings: Identity(token, "user@example.test", "User", roles[token]),
+    )
+    app = create_app(Settings(HOTSPOT_OIDC_ENABLED=True))
+    app.dependency_overrides[get_geocatalog_client] = FakeGeoCatalogClient
+    client = TestClient(app)
+    payload = {"satellite": "noaa20", "observed_at": "2026-10-04T18:45:53", "longitude": 110.3,
+               "latitude": -2.6, "pixel_size_meters": 375}
+
+    anonymous = client.post("/api/v1/scenes/resolve", json=payload)
+    no_role = client.post("/api/v1/scenes/resolve", json=payload,
+                          headers={"Authorization": "Bearer no-role-token"})
+    explorer = client.post("/api/v1/scenes/resolve", json=payload,
+                           headers={"Authorization": "Bearer explorer-token"})
+
+    assert anonymous.status_code == 401
+    assert no_role.status_code == 403
+    assert explorer.status_code == 200
+    assert forwarded == ["explorer-token"]
+
+
 def test_cors_allows_only_configured_origins():
     from brin_hotspot.config import Settings
 
