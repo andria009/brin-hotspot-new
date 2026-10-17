@@ -18,12 +18,15 @@ def test_cluster_detections_groups_nearby_pixels():
     assert len(clusters[1].detections) == 1
 
 
-def test_adjacent_mode_keeps_a_gap_separate_even_within_legacy_distance():
+def test_adjacent_mode_bridges_small_gaps_but_keeps_larger_gaps_separate():
     first = parse_snpp_file(find_snpp_files("tests/fixtures/snpp")[0])[0]
     second = replace(first, latitude=first.latitude + 400 / 111_320)
     assert len(cluster_detections([first, second], resolution_meters=375,
                                   projection="latitude_adjusted")) == 1
     assert len(cluster_detections([first, second], resolution_meters=375,
+                                  projection="latitude_adjusted", method="adjacent")) == 1
+    distant = replace(first, latitude=first.latitude + 600 / 111_320)
+    assert len(cluster_detections([first, distant], resolution_meters=375,
                                   projection="latitude_adjusted", method="adjacent")) == 2
 
 
@@ -34,6 +37,14 @@ def test_adjacent_mode_keeps_touching_pixels_in_one_cluster():
                                   projection="latitude_adjusted", method="adjacent")
     assert len(clusters) == 1
     assert len(clusters[0].detections) == 2
+
+
+def test_adjacent_mode_uses_actual_diagonal_gap():
+    first = parse_snpp_file(find_snpp_files("tests/fixtures/snpp")[0])[0]
+    diagonal = replace(first, latitude=first.latitude + 550 / 111_320,
+                       longitude=first.longitude + 550 / 111_320)
+    assert len(cluster_detections([first, diagonal], resolution_meters=375,
+                                  projection="latitude_adjusted", method="adjacent")) == 2
 
 
 def test_adjacent_mode_uses_local_utm_when_geo_dependency_is_available():

@@ -79,6 +79,7 @@ const SATELLITE_PIXEL_SIZE_METERS: Record<string, number> = {
 // so the map and sidebar legend read as one continuous low-to-high risk ramp.
 const CONFIDENCE_VALUES = Array.from({ length: 10 }, (_, index) => index);
 const HOTSPOT_FILL_LAYER = "hotspot-footprints";
+const HOTSPOT_FOOTPRINT_EDGE_LAYER = "hotspot-footprint-visibility";
 const HOTSPOT_CENTER_LAYER = "hotspot-centers";
 const SCENE_OVERLAY_SOURCE = "geocatalog-scene-overlay";
 const SCENE_OVERLAY_LAYER = "geocatalog-scene-overlay";
@@ -286,6 +287,18 @@ export default function App() {
         }
       });
       mapRef.current?.addLayer({
+        id: HOTSPOT_FOOTPRINT_EDGE_LAYER,
+        type: "line",
+        source: "hotspots",
+        filter: ["==", ["get", "is_adjacent_footprint"], true],
+        layout: { "line-join": "miter" },
+        paint: {
+          "line-color": confidenceColorExpression(),
+          "line-opacity": hotspotOpacityExpression("", "", ""),
+          "line-width": ["get", "display_stroke_px"]
+        }
+      });
+      mapRef.current?.addLayer({
         id: HOTSPOT_CENTER_LAYER,
         type: "fill",
         source: "hotspots",
@@ -295,7 +308,8 @@ export default function App() {
           "fill-opacity": hotspotOpacityExpression("", "", "")
         }
       });
-      for (const layer of [HOTSPOT_FILL_LAYER, HOTSPOT_CENTER_LAYER]) {
+      for (const layer of [HOTSPOT_FILL_LAYER, HOTSPOT_FOOTPRINT_EDGE_LAYER,
+                           HOTSPOT_CENTER_LAYER]) {
         mapRef.current?.on("click", layer, (event) => {
           clearScenePreview();
           setSelected(event.features?.[0] ?? null);
@@ -349,7 +363,8 @@ export default function App() {
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
-    for (const layer of [HOTSPOT_FILL_LAYER, HOTSPOT_CENTER_LAYER]) {
+    for (const layer of [HOTSPOT_FILL_LAYER, HOTSPOT_FOOTPRINT_EDGE_LAYER,
+                         HOTSPOT_CENTER_LAYER]) {
       if (map.getLayer(layer)) {
         map.setLayoutProperty(layer, "visibility", hotspotsHidden ? "none" : "visible");
       }
@@ -643,6 +658,10 @@ export default function App() {
       map.setPaintProperty(layer, "fill-color", hotspotColorExpression(province, kabupaten, kecamatan));
       map.setPaintProperty(layer, "fill-opacity", hotspotOpacityExpression(province, kabupaten, kecamatan));
     }
+    map.setPaintProperty(HOTSPOT_FOOTPRINT_EDGE_LAYER, "line-color",
+      hotspotColorExpression(province, kabupaten, kecamatan));
+    map.setPaintProperty(HOTSPOT_FOOTPRINT_EDGE_LAYER, "line-opacity",
+      hotspotOpacityExpression(province, kabupaten, kecamatan));
   }
 
   async function exportGeoJson() {
@@ -750,6 +769,9 @@ export default function App() {
           ) : null}
           {kind === "cluster" && clusterMethod === "distance" ? (
             <p className="helper-text">Circles enclose detected pixels, not fire area; they are enlarged at low zoom for visibility.</p>
+          ) : null}
+          {kind === "cluster" && clusterMethod === "adjacent" ? (
+            <p className="helper-text">Nearby pixels can share a cluster across small gaps. Shapes enlarge at low zoom; area excludes gaps.</p>
           ) : null}
           <label className="range-label">
             <span className="range-label-header">
@@ -1421,6 +1443,8 @@ type HotspotFootprintProperties = HotspotFeature["properties"] & {
   center_longitude: number;
   is_cluster_extent?: boolean;
   is_cluster_center?: boolean;
+  is_adjacent_footprint?: boolean;
+  display_stroke_px?: number;
 };
 
 function hotspotFootprints(
@@ -1448,14 +1472,22 @@ function hotspotFootprint(
   if (feature.geometry.type === "MultiPolygon") {
     if (typeof feature.properties.center_latitude !== "number" ||
         typeof feature.properties.center_longitude !== "number") return [];
+    const latitude = feature.properties.center_latitude;
+    const pixelSizeMeters = SATELLITE_PIXEL_SIZE_METERS[feature.properties.satellite] ?? 1000;
+    const actualHalfSideMeters = pixelSizeMeters / 2;
+    const visibleHalfSideMeters = zoom >= 12 ? actualHalfSideMeters
+      : Math.max(actualHalfSideMeters, minimumVisibleHalfSideMeters(latitude, zoom));
     return [{
       type: "Feature",
       id: feature.id,
       geometry: feature.geometry,
       properties: {
         ...feature.properties,
-        center_latitude: feature.properties.center_latitude,
-        center_longitude: feature.properties.center_longitude
+        center_latitude: latitude,
+        center_longitude: feature.properties.center_longitude,
+        is_adjacent_footprint: true,
+        display_stroke_px: 2 * (visibleHalfSideMeters - actualHalfSideMeters) /
+          metersPerPixel(latitude, zoom)
       }
     }];
   }
@@ -1502,8 +1534,11 @@ function hotspotFootprint(
 }
 
 function minimumVisibleHalfSideMeters(latitude: number, zoom: number) {
-  const metersPerPixel = 156543.03392 * Math.cos((latitude * Math.PI) / 180) / 2 ** zoom;
-  return Math.min(metersPerPixel * 3, 20_000);
+  return Math.min(metersPerPixel(latitude, zoom) * 3, 20_000);
+}
+
+function metersPerPixel(latitude: number, zoom: number) {
+  return 156543.03392 * Math.cos((latitude * Math.PI) / 180) / 2 ** zoom;
 }
 
 function squareCoordinates(

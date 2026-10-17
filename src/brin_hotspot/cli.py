@@ -682,6 +682,11 @@ def materialize_clusters_command(
     if method not in {"distance", "adjacent"}:
         typer.echo("--cluster-method must be distance or adjacent", err=True)
         raise typer.Exit(2)
+    if method == "adjacent" and min_confidence is not None:
+        typer.echo(
+            "Adjacent cluster replacement requires all pixels; omit --min-confidence", err=True
+        )
+        raise typer.Exit(2)
 
     settings = _bootstrap()
     repository = HotspotRepository(settings.hotspot_database)

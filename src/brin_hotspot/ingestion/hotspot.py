@@ -317,7 +317,7 @@ def _process_source(
         projection="latitude_adjusted",
     )
     source_cluster_variants = {"latitude_adjusted": source_clusters}
-    adjacent_clusters = []
+    adjacent_clusters = None
     if repository:
         try:
             source_cluster_variants["epsg4087"] = cluster_detections(

@@ -100,6 +100,12 @@ class HotspotRepository:
                                 cluster_projection=projection,
                             )
 
+                    if adjacent_clusters is not None:
+                        _delete_adjacent_cluster_scenes(
+                            cursor, {(satellite, observed_at, scene_id)
+                                     for scene_id, observed_at in metadata.values()},
+                            "local_utm",
+                        )
                     for cluster in adjacent_clusters or ():
                         self._insert_cluster(
                             cursor,
@@ -274,6 +280,11 @@ class HotspotRepository:
     ) -> int:
         """Build stored cluster rows for an existing pixel archive."""
 
+        if cluster_method == "adjacent" and min_confidence is not None:
+            raise ValueError(
+                "Adjacent cluster replacement requires all pixels; omit min_confidence"
+            )
+
         where: list[str] = []
         params: list[object] = []
         if satellites:
@@ -327,6 +338,12 @@ class HotspotRepository:
         with psycopg.connect(self._database.dsn, connect_timeout=5) as connection:
             with connection.transaction():
                 with connection.cursor() as cursor:
+                    if cluster_method == "adjacent":
+                        _delete_adjacent_cluster_scenes(
+                            cursor, {(satellite, observed_at, scene_id)
+                                     for satellite, observed_at, scene_id, _ in grouped},
+                            cluster_projection,
+                        )
                     for detections in grouped.values():
                         settings = _SATELLITE_CLUSTER_SETTINGS.get(detections[0].satellite)
                         if settings is None:
@@ -625,6 +642,22 @@ def _source_metadata(clusters: list[HotspotCluster]) -> dict[Path, tuple[str, da
         for detection in cluster.detections:
             metadata[detection.source_file] = (detection.scene_id, detection.observed_at)
     return metadata
+
+
+def _delete_adjacent_cluster_scenes(
+    cursor: psycopg.Cursor, scenes: set[tuple[str, datetime, str]],
+    cluster_projection: ClusteringProjection,
+) -> None:
+    for satellite, observed_at, scene_id in scenes:
+        cursor.execute(
+            """
+            DELETE FROM hotspot_cluster
+            WHERE cluster_projection = %s AND cluster_method = 'adjacent'
+              AND satellite = %s AND observed_at = %s
+              AND COALESCE(scene_id, '') = %s;
+            """,
+            (cluster_projection, satellite, observed_at, scene_id),
+        )
 
 
 def _detection_from_pixel_row(row) -> HotspotDetection:

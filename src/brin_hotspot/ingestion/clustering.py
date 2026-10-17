@@ -126,7 +126,8 @@ def _build_neighbor_graph(
             right = points[right_index]
             dx, dy = abs(left[0] - right[0]), abs(left[1] - right[1])
             connected = (
-                dx <= resolution_meters and dy <= resolution_meters
+                sqrt(max(dx - resolution_meters, 0)**2 +
+                     max(dy - resolution_meters, 0)**2) <= resolution_meters / 2
                 if method == "adjacent" else sqrt(dx**2 + dy**2) < threshold
             )
             if connected:
