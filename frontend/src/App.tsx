@@ -743,7 +743,7 @@ export default function App() {
             <button className={kind === "pixel" ? "active" : ""} onClick={() => { clearScenePreview(); setSelected(null); setKind("pixel"); }}>Pixel</button>
           </div>
           {kind === "cluster" ? (
-            <div className="segmented" aria-label="Cluster view">
+            <div className="segmented cluster-methods" aria-label="Cluster view">
               <button className={clusterMethod === "distance" ? "active" : ""} onClick={() => { clearScenePreview(); setSelected(null); setClusterMethod("distance"); }}>Center and circle</button>
               <button className={clusterMethod === "adjacent" ? "active" : ""} onClick={() => { clearScenePreview(); setSelected(null); setClusterMethod("adjacent"); }}>Connected footprints</button>
             </div>
@@ -1472,7 +1472,7 @@ function hotspotFootprint(
     zoom >= 12 ? actualHalfSideMeters : Math.max(actualHalfSideMeters, visibleHalfSideMeters);
   const circle = kind === "cluster" && method === "distance";
   const radiusMeters = Math.max(feature.properties.radius_meters ?? pixelSizeMeters / Math.SQRT2,
-    zoom >= 12 ? 0 : visibleHalfSideMeters);
+    zoom >= 12 ? 0 : halfSideMeters * 2);
   const extent: GeoJSON.Feature<GeoJSON.Polygon, HotspotFootprintProperties> = {
     type: "Feature",
     id: feature.id,
@@ -1490,16 +1490,13 @@ function hotspotFootprint(
     }
   };
   if (!circle) return [extent];
-  const centerRadiusMeters = zoom >= 12
-    ? pixelSizeMeters / 2
-    : Math.max(pixelSizeMeters / 2, visibleHalfSideMeters / 2);
   return [extent, {
     ...extent,
     id: feature.id === undefined ? undefined : `${feature.id}-center`,
     properties: { ...extent.properties, is_cluster_extent: false, is_cluster_center: true },
     geometry: {
       type: "Polygon",
-      coordinates: [circleCoordinates(longitude, latitude, centerRadiusMeters)]
+      coordinates: [circleCoordinates(longitude, latitude, halfSideMeters)]
     }
   }];
 }

@@ -359,6 +359,13 @@ button {
   font-weight: 800;
 }
 
+.cluster-methods button {
+  height: 32px;
+  line-height: 1.15;
+  min-height: 32px;
+  padding: 0 4px;
+}
+
 .helper-text {
   font-size: 13px;
   font-weight: 400;
@@ -437,6 +444,7 @@ button {
   border: 1px solid #d9e1e8;
   border-radius: 8px;
   color: #445368;
+  font-size: 13px;
   min-height: 34px;
 }
 
