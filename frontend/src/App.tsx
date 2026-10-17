@@ -79,6 +79,7 @@ const SATELLITE_PIXEL_SIZE_METERS: Record<string, number> = {
 // so the map and sidebar legend read as one continuous low-to-high risk ramp.
 const CONFIDENCE_VALUES = Array.from({ length: 10 }, (_, index) => index);
 const HOTSPOT_FILL_LAYER = "hotspot-footprints";
+const HOTSPOT_CENTER_LAYER = "hotspot-centers";
 const SCENE_OVERLAY_SOURCE = "geocatalog-scene-overlay";
 const SCENE_OVERLAY_LAYER = "geocatalog-scene-overlay";
 type Basemap = "street" | "satellite";
@@ -120,6 +121,8 @@ export default function App() {
     kecamatan: []
   });
   const [selected, setSelected] = useState<GeoJSON.Feature | null>(null);
+  const [previewVisible, setPreviewVisible] = useState(false);
+  const [hotspotsHidden, setHotspotsHidden] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [rightRailOpen, setRightRailOpen] = useState(false);
   const [bottomRailOpen, setBottomRailOpen] = useState(false);
@@ -267,9 +270,7 @@ export default function App() {
     });
     mapRef.current.addControl(new maplibregl.NavigationControl({ showCompass: false }), "bottom-right");
     mapRef.current.on("load", () => {
-      // Hotspots are kept in one GeoJSON source and rendered as square footprint
-      // polygons; filters are applied by refetching data, while region selection
-      // is a paint update.
+      // Hotspots share one source; distance centers render above their translucent extents.
       mapRef.current?.addSource("hotspots", {
         type: "geojson",
         data: { type: "FeatureCollection", features: [] }
@@ -278,21 +279,34 @@ export default function App() {
         id: HOTSPOT_FILL_LAYER,
         type: "fill",
         source: "hotspots",
+        filter: ["!=", ["get", "is_cluster_center"], true],
         paint: {
           "fill-color": confidenceColorExpression(),
-          "fill-opacity": 0.86
+          "fill-opacity": hotspotOpacityExpression("", "", "")
         }
       });
-      mapRef.current?.on("click", HOTSPOT_FILL_LAYER, (event) => {
-        removeSceneOverlay(mapRef.current);
-        setSelected(event.features?.[0] ?? null);
+      mapRef.current?.addLayer({
+        id: HOTSPOT_CENTER_LAYER,
+        type: "fill",
+        source: "hotspots",
+        filter: ["==", ["get", "is_cluster_center"], true],
+        paint: {
+          "fill-color": confidenceColorExpression(),
+          "fill-opacity": hotspotOpacityExpression("", "", "")
+        }
       });
-      mapRef.current?.on("mouseenter", HOTSPOT_FILL_LAYER, () => {
-        mapRef.current!.getCanvas().style.cursor = "pointer";
-      });
-      mapRef.current?.on("mouseleave", HOTSPOT_FILL_LAYER, () => {
-        mapRef.current!.getCanvas().style.cursor = "";
-      });
+      for (const layer of [HOTSPOT_FILL_LAYER, HOTSPOT_CENTER_LAYER]) {
+        mapRef.current?.on("click", layer, (event) => {
+          clearScenePreview();
+          setSelected(event.features?.[0] ?? null);
+        });
+        mapRef.current?.on("mouseenter", layer, () => {
+          mapRef.current!.getCanvas().style.cursor = "pointer";
+        });
+        mapRef.current?.on("mouseleave", layer, () => {
+          mapRef.current!.getCanvas().style.cursor = "";
+        });
+      }
       mapRef.current?.on("moveend", scheduleViewportHotspotRefresh);
       void refreshViewportHotspots();
     });
@@ -331,6 +345,16 @@ export default function App() {
   useEffect(() => {
     updateMapRegionHighlight();
   }, [province, kabupaten, kecamatan]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    for (const layer of [HOTSPOT_FILL_LAYER, HOTSPOT_CENTER_LAYER]) {
+      if (map.getLayer(layer)) {
+        map.setLayoutProperty(layer, "visibility", hotspotsHidden ? "none" : "visible");
+      }
+    }
+  }, [hotspotsHidden]);
 
   useEffect(() => {
     updateBasemap();
@@ -604,21 +628,21 @@ export default function App() {
     );
   }
 
+  function clearScenePreview() {
+    removeSceneOverlay(mapRef.current);
+    setPreviewVisible(false);
+    setHotspotsHidden(false);
+  }
+
   function updateMapRegionHighlight() {
     const map = mapRef.current;
     if (!map?.getLayer(HOTSPOT_FILL_LAYER)) {
       return;
     }
-    map.setPaintProperty(
-      HOTSPOT_FILL_LAYER,
-      "fill-color",
-      hotspotColorExpression(province, kabupaten, kecamatan)
-    );
-    map.setPaintProperty(
-      HOTSPOT_FILL_LAYER,
-      "fill-opacity",
-      hotspotOpacityExpression(province, kabupaten, kecamatan)
-    );
+    for (const layer of [HOTSPOT_FILL_LAYER, HOTSPOT_CENTER_LAYER]) {
+      map.setPaintProperty(layer, "fill-color", hotspotColorExpression(province, kabupaten, kecamatan));
+      map.setPaintProperty(layer, "fill-opacity", hotspotOpacityExpression(province, kabupaten, kecamatan));
+    }
   }
 
   async function exportGeoJson() {
@@ -715,13 +739,13 @@ export default function App() {
             <span>Filters</span>
           </div>
           <div className="segmented">
-            <button className={kind === "cluster" ? "active" : ""} onClick={() => setKind("cluster")}>Cluster</button>
-            <button className={kind === "pixel" ? "active" : ""} onClick={() => setKind("pixel")}>Pixel</button>
+            <button className={kind === "cluster" ? "active" : ""} onClick={() => { clearScenePreview(); setSelected(null); setKind("cluster"); }}>Cluster</button>
+            <button className={kind === "pixel" ? "active" : ""} onClick={() => { clearScenePreview(); setSelected(null); setKind("pixel"); }}>Pixel</button>
           </div>
           {kind === "cluster" ? (
             <div className="segmented" aria-label="Cluster view">
-              <button className={clusterMethod === "distance" ? "active" : ""} onClick={() => { setSelected(null); setClusterMethod("distance"); }}>Center and circle</button>
-              <button className={clusterMethod === "adjacent" ? "active" : ""} onClick={() => { setSelected(null); setClusterMethod("adjacent"); }}>Connected footprints</button>
+              <button className={clusterMethod === "distance" ? "active" : ""} onClick={() => { clearScenePreview(); setSelected(null); setClusterMethod("distance"); }}>Center and circle</button>
+              <button className={clusterMethod === "adjacent" ? "active" : ""} onClick={() => { clearScenePreview(); setSelected(null); setClusterMethod("adjacent"); }}>Connected footprints</button>
             </div>
           ) : null}
           {kind === "cluster" && clusterMethod === "distance" ? (
@@ -834,7 +858,7 @@ export default function App() {
       <section className="map-area">
         <div className="map-toolbar">
           <div className="toolbar-count">
-            <strong>{formatCount(visibleCount)}</strong>
+            <strong>{formatCount(hotspotsHidden ? 0 : visibleCount)}</strong>
             <span> visible {kind}s</span>
           </div>
           <div className="basemap-switch" aria-label="Basemap">
@@ -858,6 +882,11 @@ export default function App() {
             <Crosshair size={16} /> Bbox
           </button>
           <button className="toolbar-button" onClick={() => void refresh()}><RefreshCw size={16} /> Refresh</button>
+          {previewVisible ? (
+            <button className="toolbar-button" aria-pressed={hotspotsHidden} onClick={() => setHotspotsHidden((hidden) => !hidden)}>
+              {hotspotsHidden ? "Show" : "Hide"} hotspot {kind === "cluster" ? "clusters" : "pixels"}
+            </button>
+          ) : null}
           <button className="toolbar-button" onClick={() => void exportGeoJson()} disabled={isExporting}>
             <Download size={16} /> {isExporting ? "Exporting" : "GeoJSON"}
           </button>
@@ -883,13 +912,19 @@ export default function App() {
           <FeatureInspector
             key={JSON.stringify([selected.id, selected.geometry, selected.properties?.scene_id, selected.properties?.observed_at])}
             feature={selected}
+            previewVisible={previewVisible}
             onClose={() => {
-              removeSceneOverlay(mapRef.current);
+              clearScenePreview();
               setSelected(null);
             }}
             onScenePreview={(scene) => {
-              if (scene) showSceneOverlay(mapRef.current, scene);
-              else removeSceneOverlay(mapRef.current);
+              if (scene) {
+                showSceneOverlay(mapRef.current, scene);
+                setPreviewVisible(true);
+                setHotspotsHidden(false);
+              } else {
+                clearScenePreview();
+              }
             }}
           />
         )}
@@ -1104,10 +1139,12 @@ function hotspotOpacityExpression(
   kecamatan: string
 ): maplibregl.ExpressionSpecification {
   const regionMatch = regionMatchExpression(province, kabupaten, kecamatan);
+  const extent: maplibregl.ExpressionSpecification = ["==", ["get", "is_cluster_extent"], true];
+  const normalOpacity: maplibregl.ExpressionSpecification = ["case", extent, 0.2, 0.9];
   if (!regionMatch) {
-    return ["literal", 0.9];
+    return normalOpacity;
   }
-  return ["case", regionMatch, 0.9, 0.32];
+  return ["case", regionMatch, normalOpacity, ["case", extent, 0.08, 0.32]];
 }
 
 function regionMatchExpression(
@@ -1382,6 +1419,8 @@ function barWidth(total: number, maxTotal: number) {
 type HotspotFootprintProperties = HotspotFeature["properties"] & {
   center_latitude: number;
   center_longitude: number;
+  is_cluster_extent?: boolean;
+  is_cluster_center?: boolean;
 };
 
 function hotspotFootprints(
@@ -1392,10 +1431,7 @@ function hotspotFootprints(
 ): GeoJSON.FeatureCollection<GeoJSON.Polygon | GeoJSON.MultiPolygon, HotspotFootprintProperties> {
   return {
     type: "FeatureCollection",
-    features: collection.features.flatMap((feature) => {
-      const footprint = hotspotFootprint(feature, kind, method, zoom);
-      return footprint ? [footprint] : [];
-    })
+    features: collection.features.flatMap((feature) => hotspotFootprint(feature, kind, method, zoom))
   };
 }
 
@@ -1408,11 +1444,11 @@ function hotspotFootprint(
   kind: HotspotKind,
   method: ClusterMethod,
   zoom: number
-): GeoJSON.Feature<GeoJSON.Polygon | GeoJSON.MultiPolygon, HotspotFootprintProperties> | null {
+): GeoJSON.Feature<GeoJSON.Polygon | GeoJSON.MultiPolygon, HotspotFootprintProperties>[] {
   if (feature.geometry.type === "MultiPolygon") {
     if (typeof feature.properties.center_latitude !== "number" ||
-        typeof feature.properties.center_longitude !== "number") return null;
-    return {
+        typeof feature.properties.center_longitude !== "number") return [];
+    return [{
       type: "Feature",
       id: feature.id,
       geometry: feature.geometry,
@@ -1421,10 +1457,10 @@ function hotspotFootprint(
         center_latitude: feature.properties.center_latitude,
         center_longitude: feature.properties.center_longitude
       }
-    };
+    }];
   }
   if (feature.geometry.type !== "Point") {
-    return null;
+    return [];
   }
   const [longitude, latitude] = feature.geometry.coordinates;
   const pixelSizeMeters =
@@ -1437,13 +1473,14 @@ function hotspotFootprint(
   const circle = kind === "cluster" && method === "distance";
   const radiusMeters = Math.max(feature.properties.radius_meters ?? pixelSizeMeters / Math.SQRT2,
     zoom >= 12 ? 0 : visibleHalfSideMeters);
-  return {
+  const extent: GeoJSON.Feature<GeoJSON.Polygon, HotspotFootprintProperties> = {
     type: "Feature",
     id: feature.id,
     properties: {
       ...feature.properties,
       center_latitude: latitude,
-      center_longitude: longitude
+      center_longitude: longitude,
+      is_cluster_extent: circle
     },
     geometry: {
       type: "Polygon",
@@ -1452,6 +1489,19 @@ function hotspotFootprint(
         : squareCoordinates(longitude, latitude, halfSideMeters)]
     }
   };
+  if (!circle) return [extent];
+  const centerRadiusMeters = zoom >= 12
+    ? pixelSizeMeters / 2
+    : Math.max(pixelSizeMeters / 2, visibleHalfSideMeters / 2);
+  return [extent, {
+    ...extent,
+    id: feature.id === undefined ? undefined : `${feature.id}-center`,
+    properties: { ...extent.properties, is_cluster_extent: false, is_cluster_center: true },
+    geometry: {
+      type: "Polygon",
+      coordinates: [circleCoordinates(longitude, latitude, centerRadiusMeters)]
+    }
+  }];
 }
 
 function minimumVisibleHalfSideMeters(latitude: number, zoom: number) {
@@ -1541,10 +1591,12 @@ function Row({ title, meta }: { title: string; meta: string }) {
 
 function FeatureInspector({
   feature,
+  previewVisible,
   onClose,
   onScenePreview
 }: {
   feature: GeoJSON.Feature;
+  previewVisible: boolean;
   onClose: () => void;
   onScenePreview: (scene: SceneResponse | null) => void;
 }) {
@@ -1553,7 +1605,6 @@ function FeatureInspector({
   const [scene, setScene] = useState<SceneResponse | null>(null);
   const [sceneError, setSceneError] = useState("");
   const [sceneLoading, setSceneLoading] = useState(false);
-  const [previewVisible, setPreviewVisible] = useState(false);
 
   useEffect(() => {
     if (scene?.status !== "pending") {
@@ -1572,7 +1623,6 @@ function FeatureInspector({
     }
     setSceneLoading(true);
     setSceneError("");
-    setPreviewVisible(false);
     onScenePreview(null);
     try {
       const resolved = await requestScene({
@@ -1635,10 +1685,7 @@ function FeatureInspector({
           className="scene-preview-toggle"
           role="switch"
           aria-checked={previewVisible}
-          onClick={() => {
-            onScenePreview(previewVisible ? null : scene);
-            setPreviewVisible(!previewVisible);
-          }}
+          onClick={() => onScenePreview(previewVisible ? null : scene)}
         >
           {previewVisible ? "Hide preview from map" : "Show preview on map"}
         </button>
