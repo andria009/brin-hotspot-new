@@ -1,9 +1,10 @@
 from datetime import datetime
+from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
 
 from brin_hotspot.api.app import create_app, get_geocatalog_client, get_repository
-from brin_hotspot.api.repository import _hotspot_feature
+from brin_hotspot.api.repository import ReadOnlyHotspotRepository, _hotspot_feature
 from brin_hotspot.api.schemas import (
     HotspotStatisticsResponse,
     HotspotTrendResponse,
@@ -217,6 +218,41 @@ def test_hotspots_accepts_time_and_region_filters():
     assert repository.hotspot_kwargs["kecamatan"] == "Menteng"
     assert repository.hotspot_kwargs["bbox"] == (90.0, -10.0, 150.0, 10.0)
     assert repository.hotspot_kwargs["limit"] == 100000
+
+
+def test_trend_counts_confidence_by_day_and_satellite_with_indonesia_filter(monkeypatch):
+    class FakeConnection:
+        query = ""
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_):
+            pass
+
+        def cursor(self):
+            return self
+
+        def execute(self, query, _params):
+            self.query = query
+
+        def fetchall(self):
+            day = datetime(2026, 10, 17).date()
+            return [(day, "snpp", 8, 2), (day, "snpp", 9, 1),
+                    (day, "noaa20", 8, 3)]
+
+    connection = FakeConnection()
+    monkeypatch.setattr("brin_hotspot.api.repository.psycopg.connect",
+                        lambda *_args, **_kwargs: connection)
+    item = ReadOnlyHotspotRepository(SimpleNamespace(dsn="unused")).trend(
+        kind="pixel", satellites=["snpp", "noaa20"]
+    ).items[0]
+
+    assert item.total == 6
+    assert item.satellites == {"snpp": 3, "noaa20": 3}
+    assert item.confidences[8] == 5
+    assert item.satellite_confidences["snpp"] == {8: 2, 9: 1}
+    assert "ST_Covers(indonesia.geom, coordinate::geometry)" in connection.query
 
 
 def test_scene_resolve_proxies_request_to_geocatalog():

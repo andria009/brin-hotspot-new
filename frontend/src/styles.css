@@ -80,8 +80,17 @@ button {
   width: 100%;
 }
 
-.brand-toggle:hover p {
+.brand-title:hover .brand-name {
   color: #b7192b;
+}
+
+.brand-logo-button,
+.brand-title {
+  background: transparent;
+  border: 0;
+  color: inherit;
+  padding: 0;
+  text-align: left;
 }
 
 .sidebar.collapsed .brand {
@@ -102,13 +111,15 @@ button {
   width: 44px;
 }
 
-.brand p {
+.brand-name {
+  color: #16202a;
+  display: block;
   font-size: 18px;
   font-weight: 800;
   margin: 0;
 }
 
-.brand span {
+.brand-subtitle {
   color: #627184;
   display: block;
   font-size: 13px;
@@ -610,12 +621,45 @@ button {
   bottom: 0;
   box-shadow: 0 -16px 50px rgba(20, 35, 51, 0.16);
   left: 18px;
-  max-height: 44vh;
+  max-height: calc(100vh - 80px);
   overflow: auto;
   padding: 14px;
   position: absolute;
   right: 18px;
   z-index: 3;
+}
+
+.bottom-rail:not([style]) {
+  max-height: 44vh;
+}
+
+.statistics-resize-handle {
+  background: transparent;
+  border: 0;
+  cursor: ns-resize;
+  display: block;
+  height: 14px;
+  margin: -14px -14px 8px;
+  position: sticky;
+  top: 0;
+  touch-action: none;
+  width: calc(100% + 28px);
+  z-index: 1;
+}
+
+.statistics-resize-handle::after {
+  background: #bdc8d2;
+  border-radius: 4px;
+  content: "";
+  display: block;
+  height: 5px;
+  margin: 4px auto;
+  width: 68px;
+}
+
+.statistics-resize-handle:focus-visible {
+  outline: 2px solid #b7192b;
+  outline-offset: 3px;
 }
 
 .statistics-grid {
@@ -678,6 +722,36 @@ button {
   display: grid;
   gap: 5px;
   padding: 7px 8px;
+}
+
+.confidence-table-wrap {
+  overflow-x: auto;
+}
+
+.confidence-table-wrap > strong {
+  display: block;
+  font-size: 13px;
+  margin-bottom: 8px;
+}
+
+.confidence-table {
+  border-collapse: collapse;
+  font-size: 12px;
+  text-align: right;
+  width: 100%;
+}
+
+.confidence-table th,
+.confidence-table td {
+  border-bottom: 1px solid #e4ebf1;
+  padding: 5px 8px;
+  white-space: nowrap;
+}
+
+.confidence-table th:first-child,
+.confidence-table th:nth-child(2),
+.confidence-table td:nth-child(2) {
+  text-align: left;
 }
 
 .trend-day strong {

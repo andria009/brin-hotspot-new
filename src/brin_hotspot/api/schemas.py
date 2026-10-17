@@ -76,6 +76,8 @@ class TrendItem(BaseModel):
     date: str
     total: int
     satellites: dict[str, int] = Field(default_factory=dict)
+    confidences: dict[int, int] = Field(default_factory=dict)
+    satellite_confidences: dict[str, dict[int, int]] = Field(default_factory=dict)
 
 
 class HotspotTrendResponse(BaseModel):

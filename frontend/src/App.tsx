@@ -84,6 +84,8 @@ const HOTSPOT_CENTER_LAYER = "hotspot-centers";
 const HOTSPOT_ADJACENT_MARKER_LAYER = "hotspot-adjacent-markers";
 const SCENE_OVERLAY_SOURCE = "geocatalog-scene-overlay";
 const SCENE_OVERLAY_LAYER = "geocatalog-scene-overlay";
+const DEFAULT_MAP_CENTER: [number, number] = [118, -2.5];
+const DEFAULT_MAP_ZOOM = 4.3;
 type Basemap = "street" | "satellite";
 type DetailSection = "status" | "runs" | "sources";
 type ScreenPoint = { x: number; y: number };
@@ -97,6 +99,8 @@ type BboxSelectionState = {
 export default function App() {
   const mapRef = useRef<maplibregl.Map | null>(null);
   const mapNodeRef = useRef<HTMLDivElement | null>(null);
+  const bottomRailRef = useRef<HTMLElement | null>(null);
+  const railResizeRef = useRef<{ y: number; height: number } | null>(null);
   const defaultDateInitializedRef = useRef(false);
   const viewportRefreshTimeoutRef = useRef<number | null>(null);
   const latestHotspotRequestRef = useRef(0);
@@ -128,6 +132,7 @@ export default function App() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [rightRailOpen, setRightRailOpen] = useState(false);
   const [bottomRailOpen, setBottomRailOpen] = useState(false);
+  const [bottomRailHeight, setBottomRailHeight] = useState<number | null>(null);
   const [detailSections, setDetailSections] = useState<Record<DetailSection, boolean>>({
     status: true,
     runs: true,
@@ -239,8 +244,8 @@ export default function App() {
     // switched by toggling layer visibility without rebuilding the map.
     mapRef.current = new maplibregl.Map({
       container: mapNodeRef.current,
-      center: [118, -2.5],
-      zoom: 4.3,
+      center: DEFAULT_MAP_CENTER,
+      zoom: DEFAULT_MAP_ZOOM,
       style: {
         version: 8,
         sources: {
@@ -367,7 +372,8 @@ export default function App() {
   useEffect(() => {
     const source = mapRef.current?.getSource("hotspots") as maplibregl.GeoJSONSource | undefined;
     if (source && hotspots) {
-      source.setData(hotspotFootprints(hotspots, kind, clusterMethod, mapRef.current?.getZoom() ?? 4.3));
+      source.setData(hotspotFootprints(hotspots, kind, clusterMethod,
+        mapRef.current?.getZoom() ?? DEFAULT_MAP_ZOOM));
     }
   }, [hotspots, kind, clusterMethod]);
 
@@ -532,6 +538,20 @@ export default function App() {
         }
       }
     );
+  }
+
+  function resetMapView() {
+    clearScenePreview();
+    setSelected(null);
+    mapRef.current?.flyTo({ center: DEFAULT_MAP_CENTER, zoom: DEFAULT_MAP_ZOOM, duration: 700 });
+  }
+
+  function resizeStatistics(event: PointerEvent<HTMLButtonElement>) {
+    if (!railResizeRef.current) return;
+    setBottomRailHeight(Math.max(200, Math.min(
+      window.innerHeight - 80,
+      railResizeRef.current.height + railResizeRef.current.y - event.clientY
+    )));
   }
 
   function shouldFetchHotspotFeatures(filters: HotspotFilters, bbox: HotspotBbox | null) {
@@ -708,15 +728,17 @@ export default function App() {
   return (
     <main className={`app-shell ${rightRailOpen ? "" : "rail-collapsed"} ${sidebarCollapsed ? "sidebar-collapsed" : ""}`}>
       <aside className={`sidebar ${sidebarCollapsed ? "collapsed" : ""}`}>
-        <button className="brand brand-toggle" onClick={() => setSidebarCollapsed((collapsed) => !collapsed)} title="Toggle sidebar">
-          <img className="brand-logo" src={hotspotIcon} alt="BRIN Hotspot Monitoring System" />
+        <div className="brand">
+          <button className="brand-logo-button" onClick={() => setSidebarCollapsed((collapsed) => !collapsed)} title="Toggle sidebar" aria-label="Toggle sidebar">
+            <img className="brand-logo" src={hotspotIcon} alt="" />
+          </button>
           {!sidebarCollapsed ? (
-          <div>
-            <p>BRIN Fire Hotspot</p>
-            <span>Indonesia active fire monitoring</span>
-          </div>
+          <button className="brand-title" onClick={resetMapView} title="Reset map to Indonesia">
+            <span className="brand-name">BRIN Fire Hotspot</span>
+            <span className="brand-subtitle">Indonesia active fire monitoring</span>
+          </button>
           ) : null}
-        </button>
+        </div>
 
         {!sidebarCollapsed ? (
         <>
@@ -792,7 +814,7 @@ export default function App() {
             <p className="helper-text">Circles enclose detected pixels, not fire area; they are enlarged at low zoom for visibility.</p>
           ) : null}
           {kind === "cluster" && clusterMethod === "adjacent" ? (
-            <p className="helper-text">Within a scene, footprints with gaps up to half a pixel width share a cluster; overlaps merge. Gaps remain empty in the area; dots show clusters at low zoom.</p>
+            <p className="helper-text">Within a scene, SNPP and NOAA20 footprints with left/right/up/down gaps under one pixel width share a cluster; overlaps merge. Area excludes gaps. Enlarged low-zoom shapes may appear to overlap.</p>
           ) : null}
           <label className="range-label">
             <span className="range-label-header">
@@ -972,7 +994,29 @@ export default function App() {
           />
         )}
         {bottomRailOpen && (
-          <section className="bottom-rail">
+          <section className="bottom-rail" ref={bottomRailRef}
+            style={bottomRailHeight === null ? undefined : { height: bottomRailHeight }}>
+            <button className="statistics-resize-handle"
+              aria-label="Resize statistics panel"
+              title="Drag to resize statistics panel"
+              onPointerDown={(event) => {
+                railResizeRef.current = {
+                  y: event.clientY,
+                  height: bottomRailRef.current?.offsetHeight ?? 0
+                };
+                event.currentTarget.setPointerCapture(event.pointerId);
+              }}
+              onPointerMove={resizeStatistics}
+              onPointerUp={() => { railResizeRef.current = null; }}
+              onPointerCancel={() => { railResizeRef.current = null; }}
+              onKeyDown={(event) => {
+                if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
+                event.preventDefault();
+                setBottomRailHeight(Math.max(200, Math.min(window.innerHeight - 80,
+                  (bottomRailRef.current?.offsetHeight ?? 200) + (event.key === "ArrowUp" ? 40 : -40)
+                )));
+              }}
+            />
             <div className="statistics-grid">
               <StatisticsPanel
                 kind={kind}
@@ -982,7 +1026,8 @@ export default function App() {
                 kabupaten={kabupaten}
                 kecamatan={kecamatan}
               />
-              <TrendPanel kind={kind} trend={trend} satellites={satellites} />
+              <TrendPanel kind={kind} trend={trend} satellites={satellites}
+                minConfidence={minConfidence} />
             </div>
           </section>
         )}
@@ -1299,13 +1344,16 @@ function StatisticsPanel({
 function TrendPanel({
   kind,
   trend,
-  satellites
+  satellites,
+  minConfidence
 }: {
   kind: HotspotKind;
   trend: HotspotTrend | null;
   satellites: string[];
+  minConfidence: number;
 }) {
   const items = trend?.items ?? [];
+  const confidenceLevels = CONFIDENCE_VALUES.filter((value) => value >= minConfidence);
   const satelliteTotals = satellites
     .map((satellite) => ({
       satellite,
@@ -1415,6 +1463,37 @@ function TrendPanel({
                 </div>
               );
             })}
+          </div>
+          <div className="confidence-table-wrap">
+            <strong>{kind === "pixel" ? "Pixels" : "Clusters"} by confidence and day</strong>
+            <table className="confidence-table">
+              <thead><tr>
+                <th scope="col">Day</th><th scope="col">Platform</th>
+                {confidenceLevels.map((value) => (
+                  <th scope="col" key={value} style={{ color: confidenceColor(value) }}>{value}</th>
+                ))}
+                <th scope="col">Total</th>
+              </tr></thead>
+              <tbody>
+                {items.flatMap((item) => [
+                  { label: "Total", counts: item.confidences, total: item.total },
+                  ...satellites.map((satellite) => ({
+                    label: satelliteLabel(satellite),
+                    counts: item.satellite_confidences[satellite] ?? {},
+                    total: item.satellites[satellite] ?? 0
+                  }))
+                ].map((row) => (
+                  <tr key={`${item.date}-${row.label}`}>
+                    <th scope="row">{formatTrendDate(item.date)}</th>
+                    <td>{row.label}</td>
+                    {confidenceLevels.map((value) => (
+                      <td key={value}>{formatCount(row.counts[value] ?? 0)}</td>
+                    ))}
+                    <td>{formatCount(row.total)}</td>
+                  </tr>
+                )))}
+              </tbody>
+            </table>
           </div>
         </>
       )}

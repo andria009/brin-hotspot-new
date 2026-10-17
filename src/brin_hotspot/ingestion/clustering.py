@@ -18,13 +18,16 @@ def cluster_detections(
     projection: ClusteringProjection = "latitude_adjusted",
     method: ClusteringMethod = "distance",
 ) -> list[HotspotCluster]:
-    """Group by nearby centers or nominal footprints with gaps up to half a pixel."""
+    """Group by nearby centers or nominal footprints with satellite-specific gaps."""
     if not detections:
         return []
 
     threshold = resolution_meters * neighbor_multiplier
     projected = _project_detections(detections, projection)
-    neighbors = _build_neighbor_graph(projected, threshold, resolution_meters, method)
+    neighbors = _build_neighbor_graph(
+        projected, threshold, resolution_meters, method,
+        detections[0].satellite in {"snpp", "noaa20"},
+    )
     groups = _connected_components(neighbors)
 
     clusters: list[HotspotCluster] = []
@@ -119,17 +122,26 @@ def _build_neighbor_graph(
     threshold: float,
     resolution_meters: float,
     method: ClusteringMethod,
+    viirs_cardinal_neighbors: bool,
 ) -> list[set[int]]:
     graph = [set() for _ in points]
     for left_index, left in enumerate(points):
         for right_index in range(left_index + 1, len(points)):
             right = points[right_index]
             dx, dy = abs(left[0] - right[0]), abs(left[1] - right[1])
-            connected = (
-                sqrt(max(dx - resolution_meters, 0)**2 +
-                     max(dy - resolution_meters, 0)**2) <= resolution_meters / 2
-                if method == "adjacent" else sqrt(dx**2 + dy**2) < threshold
-            )
+            if method == "adjacent" and viirs_cardinal_neighbors:
+                connected = (
+                    dx <= resolution_meters and dy < 2 * resolution_meters
+                ) or (
+                    dy <= resolution_meters and dx < 2 * resolution_meters
+                )
+            elif method == "adjacent":
+                connected = sqrt(
+                    max(dx - resolution_meters, 0)**2 +
+                    max(dy - resolution_meters, 0)**2
+                ) <= resolution_meters / 2
+            else:
+                connected = sqrt(dx**2 + dy**2) < threshold
             if connected:
                 graph[left_index].add(right_index)
                 graph[right_index].add(left_index)

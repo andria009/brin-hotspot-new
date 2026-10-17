@@ -133,6 +133,8 @@ export type TrendItem = {
   date: string;
   total: number;
   satellites: Record<string, number>;
+  confidences: Record<string, number>;
+  satellite_confidences: Record<string, Record<string, number>>;
 };
 
 export type HotspotTrend = {

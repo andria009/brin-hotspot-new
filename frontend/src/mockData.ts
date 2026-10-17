@@ -51,7 +51,13 @@ export const mockTrend: HotspotTrend = {
     { date: "2026-04-25", total: 18, satellites: { snpp: 6, noaa20: 7, aqua: 5 } },
     { date: "2026-04-26", total: 29, satellites: { snpp: 13, noaa20: 9, aqua: 7 } },
     { date: "2026-04-27", total: 37, satellites: { snpp: 17, noaa20: 12, aqua: 8 } }
-  ]
+  ].map((item) => ({
+    ...item,
+    confidences: { 8: item.total },
+    satellite_confidences: Object.fromEntries(
+      Object.entries(item.satellites).map(([satellite, total]) => [satellite, { 8: total }])
+    )
+  }))
 };
 
 export const mockRuns: IngestionRun[] = [

@@ -49,12 +49,20 @@ class ReadOnlyHotspotRepository:
                                count(provinsi)::int AS enriched_pixels,
                                max(observed_at) AS latest_observed_at
                         FROM hotspot_pixel
+                        WHERE EXISTS (
+                            SELECT 1 FROM prov_ar AS indonesia
+                            WHERE ST_Covers(indonesia.geom, hotspot_pixel.coordinate::geometry)
+                        )
                         GROUP BY satellite
                     ),
                     cluster_counts AS (
                         SELECT satellite, count(*)::int AS clusters
                         FROM hotspot_cluster
                         WHERE cluster_projection = 'latitude_adjusted'
+                          AND EXISTS (
+                              SELECT 1 FROM prov_ar AS indonesia
+                              WHERE ST_Covers(indonesia.geom, hotspot_cluster.coordinate::geometry)
+                          )
                         GROUP BY satellite
                     )
                     SELECT satellites.satellite,
@@ -310,30 +318,35 @@ class ReadOnlyHotspotRepository:
         query = f"""
             SELECT observed_at::date AS observed_date,
                    satellite,
+                   conf_lvl,
                    count(*)::int AS total
             FROM {table}
         """
         if where:
             query += " WHERE " + " AND ".join(where)
         query += """
-            GROUP BY observed_date, satellite
-            ORDER BY observed_date, satellite;
+            GROUP BY observed_date, satellite, conf_lvl
+            ORDER BY observed_date, satellite, conf_lvl;
         """
 
-        grouped: dict[str, dict[str, int]] = {}
+        grouped: dict[str, dict[str, dict[int, int]]] = {}
         with psycopg.connect(self._database.dsn, connect_timeout=5) as connection:
             with connection.cursor() as cursor:
                 cursor.execute(query, params)
-                for observed_date, satellite, count in cursor.fetchall():
+                for observed_date, satellite, confidence, count in cursor.fetchall():
                     date_key = observed_date.isoformat()
-                    satellite_counts = grouped.setdefault(date_key, {})
-                    satellite_counts[satellite] = count
+                    grouped.setdefault(date_key, {}).setdefault(satellite, {})[confidence] = count
 
         items = [
             TrendItem(
                 date=date_key,
-                total=sum(satellite_counts.values()),
-                satellites=satellite_counts,
+                total=sum(sum(counts.values()) for counts in satellite_counts.values()),
+                satellites={satellite: sum(counts.values())
+                            for satellite, counts in satellite_counts.items()},
+                confidences={confidence: sum(counts.get(confidence, 0)
+                                             for counts in satellite_counts.values())
+                             for confidence in range(10)},
+                satellite_confidences=satellite_counts,
             )
             for date_key, satellite_counts in sorted(grouped.items())
         ]
@@ -639,7 +652,10 @@ def _hotspot_filters(
     cluster_projection: ClusteringProjection | None = None,
     cluster_method: ClusteringMethod | None = None,
 ) -> tuple[list[str], list[Any]]:
-    where: list[str] = []
+    where: list[str] = [
+        "EXISTS (SELECT 1 FROM prov_ar AS indonesia "
+        "WHERE ST_Covers(indonesia.geom, coordinate::geometry))"
+    ]
     params: list[Any] = []
     if satellites:
         where.append("satellite = ANY(%s)")
