@@ -18,7 +18,7 @@ def cluster_detections(
     projection: ClusteringProjection = "latitude_adjusted",
     method: ClusteringMethod = "distance",
 ) -> list[HotspotCluster]:
-    """Group detections by nearby centers or touching nominal pixel footprints."""
+    """Group by nearby centers or nominal footprints with gaps up to half a pixel."""
     if not detections:
         return []
 

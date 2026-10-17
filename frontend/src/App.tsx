@@ -81,6 +81,7 @@ const CONFIDENCE_VALUES = Array.from({ length: 10 }, (_, index) => index);
 const HOTSPOT_FILL_LAYER = "hotspot-footprints";
 const HOTSPOT_FOOTPRINT_EDGE_LAYER = "hotspot-footprint-visibility";
 const HOTSPOT_CENTER_LAYER = "hotspot-centers";
+const HOTSPOT_ADJACENT_MARKER_LAYER = "hotspot-adjacent-markers";
 const SCENE_OVERLAY_SOURCE = "geocatalog-scene-overlay";
 const SCENE_OVERLAY_LAYER = "geocatalog-scene-overlay";
 type Basemap = "street" | "satellite";
@@ -308,8 +309,22 @@ export default function App() {
           "fill-opacity": hotspotOpacityExpression("", "", "")
         }
       });
+      mapRef.current?.addLayer({
+        id: HOTSPOT_ADJACENT_MARKER_LAYER,
+        type: "circle",
+        source: "hotspots",
+        filter: ["==", ["get", "is_adjacent_marker"], true],
+        paint: {
+          "circle-color": confidenceColorExpression(),
+          "circle-opacity": adjacentMarkerOpacityExpression("", "", ""),
+          "circle-radius": ["interpolate", ["linear"], ["zoom"], 0, 6, 8, 6, 10, 3, 12, 0],
+          "circle-stroke-color": "#ffffff",
+          "circle-stroke-width": 1,
+          "circle-stroke-opacity": adjacentMarkerOpacityExpression("", "", "")
+        }
+      });
       for (const layer of [HOTSPOT_FILL_LAYER, HOTSPOT_FOOTPRINT_EDGE_LAYER,
-                           HOTSPOT_CENTER_LAYER]) {
+                           HOTSPOT_CENTER_LAYER, HOTSPOT_ADJACENT_MARKER_LAYER]) {
         mapRef.current?.on("click", layer, (event) => {
           clearScenePreview();
           setSelected(event.features?.[0] ?? null);
@@ -364,7 +379,7 @@ export default function App() {
     const map = mapRef.current;
     if (!map) return;
     for (const layer of [HOTSPOT_FILL_LAYER, HOTSPOT_FOOTPRINT_EDGE_LAYER,
-                         HOTSPOT_CENTER_LAYER]) {
+                         HOTSPOT_CENTER_LAYER, HOTSPOT_ADJACENT_MARKER_LAYER]) {
       if (map.getLayer(layer)) {
         map.setLayoutProperty(layer, "visibility", hotspotsHidden ? "none" : "visible");
       }
@@ -662,6 +677,12 @@ export default function App() {
       hotspotColorExpression(province, kabupaten, kecamatan));
     map.setPaintProperty(HOTSPOT_FOOTPRINT_EDGE_LAYER, "line-opacity",
       hotspotOpacityExpression(province, kabupaten, kecamatan));
+    map.setPaintProperty(HOTSPOT_ADJACENT_MARKER_LAYER, "circle-color",
+      hotspotColorExpression(province, kabupaten, kecamatan));
+    for (const property of ["circle-opacity", "circle-stroke-opacity"] as const) {
+      map.setPaintProperty(HOTSPOT_ADJACENT_MARKER_LAYER, property,
+        adjacentMarkerOpacityExpression(province, kabupaten, kecamatan));
+    }
   }
 
   async function exportGeoJson() {
@@ -771,7 +792,7 @@ export default function App() {
             <p className="helper-text">Circles enclose detected pixels, not fire area; they are enlarged at low zoom for visibility.</p>
           ) : null}
           {kind === "cluster" && clusterMethod === "adjacent" ? (
-            <p className="helper-text">Nearby pixels can share a cluster across small gaps. Shapes enlarge at low zoom; area excludes gaps.</p>
+            <p className="helper-text">Within a scene, footprints with gaps up to half a pixel width share a cluster; overlaps merge. Gaps remain empty in the area; dots show clusters at low zoom.</p>
           ) : null}
           <label className="range-label">
             <span className="range-label-header">
@@ -1169,6 +1190,15 @@ function hotspotOpacityExpression(
   return ["case", regionMatch, normalOpacity, ["case", extent, 0.08, 0.32]];
 }
 
+function adjacentMarkerOpacityExpression(
+  province: string,
+  kabupaten: string,
+  kecamatan: string
+): maplibregl.ExpressionSpecification {
+  const opacity = hotspotOpacityExpression(province, kabupaten, kecamatan);
+  return ["interpolate", ["linear"], ["zoom"], 0, opacity, 8, opacity, 12, 0];
+}
+
 function regionMatchExpression(
   province: string,
   kabupaten: string,
@@ -1444,6 +1474,7 @@ type HotspotFootprintProperties = HotspotFeature["properties"] & {
   is_cluster_extent?: boolean;
   is_cluster_center?: boolean;
   is_adjacent_footprint?: boolean;
+  is_adjacent_marker?: boolean;
   display_stroke_px?: number;
 };
 
@@ -1452,7 +1483,10 @@ function hotspotFootprints(
   kind: HotspotKind,
   method: ClusterMethod,
   zoom: number
-): GeoJSON.FeatureCollection<GeoJSON.Polygon | GeoJSON.MultiPolygon, HotspotFootprintProperties> {
+): GeoJSON.FeatureCollection<
+  GeoJSON.Point | GeoJSON.Polygon | GeoJSON.MultiPolygon,
+  HotspotFootprintProperties
+> {
   return {
     type: "FeatureCollection",
     features: collection.features.flatMap((feature) => hotspotFootprint(feature, kind, method, zoom))
@@ -1468,7 +1502,10 @@ function hotspotFootprint(
   kind: HotspotKind,
   method: ClusterMethod,
   zoom: number
-): GeoJSON.Feature<GeoJSON.Polygon | GeoJSON.MultiPolygon, HotspotFootprintProperties>[] {
+): GeoJSON.Feature<
+  GeoJSON.Point | GeoJSON.Polygon | GeoJSON.MultiPolygon,
+  HotspotFootprintProperties
+>[] {
   if (feature.geometry.type === "MultiPolygon") {
     if (typeof feature.properties.center_latitude !== "number" ||
         typeof feature.properties.center_longitude !== "number") return [];
@@ -1477,7 +1514,7 @@ function hotspotFootprint(
     const actualHalfSideMeters = pixelSizeMeters / 2;
     const visibleHalfSideMeters = zoom >= 12 ? actualHalfSideMeters
       : Math.max(actualHalfSideMeters, minimumVisibleHalfSideMeters(latitude, zoom));
-    return [{
+    const footprint: GeoJSON.Feature<GeoJSON.MultiPolygon, HotspotFootprintProperties> = {
       type: "Feature",
       id: feature.id,
       geometry: feature.geometry,
@@ -1488,6 +1525,19 @@ function hotspotFootprint(
         is_adjacent_footprint: true,
         display_stroke_px: 2 * (visibleHalfSideMeters - actualHalfSideMeters) /
           metersPerPixel(latitude, zoom)
+      }
+    };
+    return [footprint, {
+      type: "Feature",
+      id: feature.id === undefined ? undefined : `${feature.id}-marker`,
+      geometry: {
+        type: "Point",
+        coordinates: [feature.properties.center_longitude, latitude]
+      },
+      properties: {
+        ...footprint.properties,
+        is_adjacent_footprint: false,
+        is_adjacent_marker: true
       }
     }];
   }
@@ -1688,6 +1738,11 @@ function FeatureInspector({
         <dt>Scene</dt><dd>{String(props.scene_id ?? "-")}</dd>
         {typeof props.pixel_count === "number" ? (
           <><dt>Detected pixels</dt><dd>{props.pixel_count}</dd></>
+        ) : null}
+        {(props.is_cluster_extent === true || props.is_cluster_center === true) &&
+         typeof props.radius_meters === "number" ? (
+          <><dt>Approximate enclosing radius</dt>
+          <dd>{props.radius_meters.toLocaleString()} m</dd></>
         ) : null}
         {typeof props.footprint_area_m2 === "number" ? (
           <><dt>Approximate active-fire detection footprint area</dt>
