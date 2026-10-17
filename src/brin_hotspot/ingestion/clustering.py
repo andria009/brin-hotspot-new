@@ -6,7 +6,8 @@ from typing import Literal
 
 from brin_hotspot.domain import HotspotCluster, HotspotDetection
 
-ClusteringProjection = Literal["latitude_adjusted", "epsg4087"]
+ClusteringProjection = Literal["latitude_adjusted", "epsg4087", "local_utm"]
+ClusteringMethod = Literal["distance", "adjacent"]
 
 
 def cluster_detections(
@@ -15,14 +16,15 @@ def cluster_detections(
     resolution_meters: float,
     neighbor_multiplier: float = 2.0,
     projection: ClusteringProjection = "latitude_adjusted",
+    method: ClusteringMethod = "distance",
 ) -> list[HotspotCluster]:
-    """Group detections using the legacy connected-neighbor distance rule."""
+    """Group detections by nearby centers or touching nominal pixel footprints."""
     if not detections:
         return []
 
     threshold = resolution_meters * neighbor_multiplier
     projected = _project_detections(detections, projection)
-    neighbors = _build_neighbor_graph(projected, threshold)
+    neighbors = _build_neighbor_graph(projected, threshold, resolution_meters, method)
     groups = _connected_components(neighbors)
 
     clusters: list[HotspotCluster] = []
@@ -31,7 +33,15 @@ def cluster_detections(
         latitude = sum(item.latitude for item in grouped) / len(grouped)
         longitude = sum(item.longitude for item in grouped) / len(grouped)
         confidence = round(sum(item.confidence for item in grouped) / len(grouped))
-        radius = round(resolution_meters * (sqrt(len(grouped)) + 2))
+        center_x = sum(projected[index][0] for index in group) / len(group)
+        center_y = sum(projected[index][1] for index in group) / len(group)
+        radius = round(
+            max(
+                sqrt((projected[index][0] - center_x) ** 2 +
+                     (projected[index][1] - center_y) ** 2)
+                for index in group
+            ) + resolution_meters / sqrt(2)
+        )
         clusters.append(
             HotspotCluster(
                 latitude=latitude,
@@ -50,18 +60,22 @@ def _project_detections(
     projection: ClusteringProjection,
 ) -> list[tuple[float, float]]:
     if projection == "latitude_adjusted":
-        return [_project_to_local_meters(item) for item in detections]
+        reference_latitude = sum(item.latitude for item in detections) / len(detections)
+        return [_project_to_local_meters(item, reference_latitude) for item in detections]
     if projection == "epsg4087":
         return _project_to_epsg4087(detections)
+    if projection == "local_utm":
+        return _project_to_local_utm(detections)
     raise ValueError(f"Unsupported clustering projection: {projection}")
 
 
-def _project_to_local_meters(detection: HotspotDetection) -> tuple[float, float]:
+def _project_to_local_meters(
+    detection: HotspotDetection, reference_latitude: float
+) -> tuple[float, float]:
     # Fast equirectangular approximation retained for operational comparison.
-    # Because longitude is absolute here, latitude differences can leak into x.
     meters_per_degree = 111_320.0
     lat = detection.latitude * meters_per_degree
-    lon = detection.longitude * meters_per_degree * cos(radians(detection.latitude))
+    lon = detection.longitude * meters_per_degree * cos(radians(reference_latitude))
     return lat, lon
 
 
@@ -80,13 +94,42 @@ def _project_to_epsg4087(detections: list[HotspotDetection]) -> list[tuple[float
     return list(zip(xs, ys, strict=True))
 
 
-def _build_neighbor_graph(points: list[tuple[float, float]], threshold: float) -> list[set[int]]:
+def _project_to_local_utm(detections: list[HotspotDetection]) -> list[tuple[float, float]]:
+    try:
+        from pyproj import Transformer
+    except ImportError as exc:
+        raise RuntimeError(
+            "Local UTM clustering requires pyproj. Install the geo optional dependency."
+        ) from exc
+
+    longitude = sum(item.longitude for item in detections) / len(detections)
+    latitude = sum(item.latitude for item in detections) / len(detections)
+    # shortcut: one UTM zone per source scene; split a scene first if it spans many zones.
+    zone = min(60, max(1, int((longitude + 180) // 6) + 1))
+    srid = (32600 if latitude >= 0 else 32700) + zone
+    transformer = Transformer.from_crs("EPSG:4326", f"EPSG:{srid}", always_xy=True)
+    xs, ys = transformer.transform(
+        [item.longitude for item in detections], [item.latitude for item in detections]
+    )
+    return list(zip(xs, ys, strict=True))
+
+
+def _build_neighbor_graph(
+    points: list[tuple[float, float]],
+    threshold: float,
+    resolution_meters: float,
+    method: ClusteringMethod,
+) -> list[set[int]]:
     graph = [set() for _ in points]
     for left_index, left in enumerate(points):
         for right_index in range(left_index + 1, len(points)):
             right = points[right_index]
-            distance = sqrt((left[0] - right[0]) ** 2 + (left[1] - right[1]) ** 2)
-            if distance < threshold:
+            dx, dy = abs(left[0] - right[0]), abs(left[1] - right[1])
+            connected = (
+                dx <= resolution_meters and dy <= resolution_meters
+                if method == "adjacent" else sqrt(dx**2 + dy**2) < threshold
+            )
+            if connected:
                 graph[left_index].add(right_index)
                 graph[right_index].add(left_index)
     return graph

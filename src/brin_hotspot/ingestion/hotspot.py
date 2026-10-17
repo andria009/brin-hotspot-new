@@ -317,6 +317,7 @@ def _process_source(
         projection="latitude_adjusted",
     )
     source_cluster_variants = {"latitude_adjusted": source_clusters}
+    adjacent_clusters = []
     if repository:
         try:
             source_cluster_variants["epsg4087"] = cluster_detections(
@@ -324,6 +325,12 @@ def _process_source(
                 resolution_meters=satellite_settings.resolution_meters,
                 neighbor_multiplier=satellite_settings.neighbor_multiplier,
                 projection="epsg4087",
+            )
+            adjacent_clusters = cluster_detections(
+                source_detections,
+                resolution_meters=satellite_settings.resolution_meters,
+                projection="local_utm",
+                method="adjacent",
             )
         except RuntimeError:
             logger.warning(
@@ -361,6 +368,7 @@ def _process_source(
                     source_key=source.source_key,
                     clusters=source_clusters,
                     cluster_variants=source_cluster_variants,
+                    adjacent_clusters=adjacent_clusters,
                     pixel_radius_meters=pixel_radius_meters,
                     source_metadata={
                         # Preserve source metadata even if every detection from a

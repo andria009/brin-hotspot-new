@@ -34,20 +34,20 @@ class GeoRepository:
                     """
                     WITH point AS (
                         SELECT ST_SetSRID(ST_MakePoint(%s, %s), 4326) AS geom
-                    ),
-                    location AS (
+                    )
+                    SELECT location.kecamatan, location.kabupaten, location.provinsi
+                    FROM point
+                    LEFT JOIN LATERAL (
                         SELECT
                             kec_ar.wa AS kecamatan,
                             kab_kota_ar.wa AS kabupaten,
                             prov_ar.wa AS provinsi
-                        FROM point
-                        JOIN kec_ar ON ST_Contains(kec_ar.geom, point.geom)
+                        FROM kec_ar
                         JOIN kab_kota_ar ON kab_kota_ar.gid = kec_ar.kab_id
                         JOIN prov_ar ON prov_ar.gid = kec_ar.prov_id
+                        WHERE ST_Contains(kec_ar.geom, point.geom)
                         LIMIT 1
-                    )
-                    SELECT location.kecamatan, location.kabupaten, location.provinsi
-                    FROM location
+                    ) location ON true
                     WHERE NOT EXISTS (
                         SELECT 1
                         FROM persistent_anomalies_buffer_500m anomaly, point
@@ -78,6 +78,8 @@ class GeoRepository:
 
         if row is None:
             return None
+        if row[0] is None:
+            return detection
 
         return detection.with_location(
             AdminLocation(

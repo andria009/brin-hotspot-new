@@ -40,6 +40,7 @@ import {
 import hotspotIcon from "./assets/hotspot-icon.png";
 import type {
   ClusterProjection,
+  ClusterMethod,
   HotspotCollection,
   HotspotFeature,
   HotspotStatistics,
@@ -104,7 +105,8 @@ export default function App() {
   const [runs, setRuns] = useState<IngestionRun[]>([]);
   const [sources, setSources] = useState<SourceFile[]>([]);
   const [kind, setKind] = useState<HotspotKind>("cluster");
-  const clusterProjection: ClusterProjection = "epsg4087";
+  const [clusterMethod, setClusterMethod] = useState<ClusterMethod>("distance");
+  const clusterProjection: ClusterProjection = clusterMethod === "adjacent" ? "local_utm" : "epsg4087";
   const [satellites, setSatellites] = useState<string[]>(["snpp", "noaa20", "aqua", "tera"]);
   const [minConfidence, setMinConfidence] = useState(7);
   const [observedFrom, setObservedFrom] = useState("");
@@ -144,6 +146,7 @@ export default function App() {
     () => ({
       kind,
       clusterProjection,
+      clusterMethod,
       satellites,
       minConfidence,
       observedFrom,
@@ -155,6 +158,7 @@ export default function App() {
     [
       kind,
       clusterProjection,
+      clusterMethod,
       satellites,
       minConfidence,
       observedFrom,
@@ -320,9 +324,9 @@ export default function App() {
   useEffect(() => {
     const source = mapRef.current?.getSource("hotspots") as maplibregl.GeoJSONSource | undefined;
     if (source && hotspots) {
-      source.setData(hotspotFootprints(hotspots, kind, mapRef.current?.getZoom() ?? 4.3));
+      source.setData(hotspotFootprints(hotspots, kind, clusterMethod, mapRef.current?.getZoom() ?? 4.3));
     }
-  }, [hotspots, kind]);
+  }, [hotspots, kind, clusterMethod]);
 
   useEffect(() => {
     updateMapRegionHighlight();
@@ -714,6 +718,15 @@ export default function App() {
             <button className={kind === "cluster" ? "active" : ""} onClick={() => setKind("cluster")}>Cluster</button>
             <button className={kind === "pixel" ? "active" : ""} onClick={() => setKind("pixel")}>Pixel</button>
           </div>
+          {kind === "cluster" ? (
+            <div className="segmented" aria-label="Cluster view">
+              <button className={clusterMethod === "distance" ? "active" : ""} onClick={() => { setSelected(null); setClusterMethod("distance"); }}>Center and circle</button>
+              <button className={clusterMethod === "adjacent" ? "active" : ""} onClick={() => { setSelected(null); setClusterMethod("adjacent"); }}>Connected footprints</button>
+            </div>
+          ) : null}
+          {kind === "cluster" && clusterMethod === "distance" ? (
+            <p className="helper-text">Circles enclose detected pixels, not fire area; they are enlarged at low zoom for visibility.</p>
+          ) : null}
           <label className="range-label">
             <span className="range-label-header">
               Minimum confidence <strong>{minConfidence}</strong>
@@ -1373,13 +1386,14 @@ type HotspotFootprintProperties = HotspotFeature["properties"] & {
 
 function hotspotFootprints(
   collection: HotspotCollection,
-  _kind: HotspotKind,
+  kind: HotspotKind,
+  method: ClusterMethod,
   zoom: number
-): GeoJSON.FeatureCollection<GeoJSON.Polygon, HotspotFootprintProperties> {
+): GeoJSON.FeatureCollection<GeoJSON.Polygon | GeoJSON.MultiPolygon, HotspotFootprintProperties> {
   return {
     type: "FeatureCollection",
     features: collection.features.flatMap((feature) => {
-      const footprint = hotspotFootprint(feature, zoom);
+      const footprint = hotspotFootprint(feature, kind, method, zoom);
       return footprint ? [footprint] : [];
     })
   };
@@ -1391,8 +1405,24 @@ function emptyHotspotCollection(): HotspotCollection {
 
 function hotspotFootprint(
   feature: HotspotFeature,
+  kind: HotspotKind,
+  method: ClusterMethod,
   zoom: number
-): GeoJSON.Feature<GeoJSON.Polygon, HotspotFootprintProperties> | null {
+): GeoJSON.Feature<GeoJSON.Polygon | GeoJSON.MultiPolygon, HotspotFootprintProperties> | null {
+  if (feature.geometry.type === "MultiPolygon") {
+    if (typeof feature.properties.center_latitude !== "number" ||
+        typeof feature.properties.center_longitude !== "number") return null;
+    return {
+      type: "Feature",
+      id: feature.id,
+      geometry: feature.geometry,
+      properties: {
+        ...feature.properties,
+        center_latitude: feature.properties.center_latitude,
+        center_longitude: feature.properties.center_longitude
+      }
+    };
+  }
   if (feature.geometry.type !== "Point") {
     return null;
   }
@@ -1404,6 +1434,9 @@ function hotspotFootprint(
   const visibleHalfSideMeters = minimumVisibleHalfSideMeters(latitude, zoom);
   const halfSideMeters =
     zoom >= 12 ? actualHalfSideMeters : Math.max(actualHalfSideMeters, visibleHalfSideMeters);
+  const circle = kind === "cluster" && method === "distance";
+  const radiusMeters = Math.max(feature.properties.radius_meters ?? pixelSizeMeters / Math.SQRT2,
+    zoom >= 12 ? 0 : visibleHalfSideMeters);
   return {
     type: "Feature",
     id: feature.id,
@@ -1414,7 +1447,9 @@ function hotspotFootprint(
     },
     geometry: {
       type: "Polygon",
-      coordinates: [squareCoordinates(longitude, latitude, halfSideMeters)]
+      coordinates: [circle
+        ? circleCoordinates(longitude, latitude, radiusMeters)
+        : squareCoordinates(longitude, latitude, halfSideMeters)]
     }
   };
 }
@@ -1443,6 +1478,17 @@ function squareCoordinates(
     [west, north],
     [west, south]
   ];
+}
+
+function circleCoordinates(longitude: number, latitude: number, radiusMeters: number): GeoJSON.Position[] {
+  const longitudeScale = Math.max(Math.cos((latitude * Math.PI) / 180), 0.15);
+  return Array.from({ length: 33 }, (_, index) => {
+    const angle = (index * Math.PI * 2) / 32;
+    return [
+      longitude + radiusMeters * Math.cos(angle) / (111_320 * longitudeScale),
+      latitude + radiusMeters * Math.sin(angle) / 111_320
+    ];
+  });
 }
 
 function satelliteColor(satellite: string) {
@@ -1558,6 +1604,13 @@ function FeatureInspector({
         <dt>Kabupaten</dt><dd>{String(props.kabupaten ?? "-")}</dd>
         <dt>Kecamatan</dt><dd>{String(props.kecamatan ?? "-")}</dd>
         <dt>Scene</dt><dd>{String(props.scene_id ?? "-")}</dd>
+        {typeof props.pixel_count === "number" ? (
+          <><dt>Detected pixels</dt><dd>{props.pixel_count}</dd></>
+        ) : null}
+        {typeof props.footprint_area_m2 === "number" ? (
+          <><dt>Approximate active-fire detection footprint area</dt>
+          <dd>{(props.footprint_area_m2 / 10_000).toFixed(2)} ha</dd></>
+        ) : null}
       </dl>
       <button
         className="scene-request-button"

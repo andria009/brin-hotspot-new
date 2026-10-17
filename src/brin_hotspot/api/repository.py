@@ -22,7 +22,7 @@ from brin_hotspot.api.schemas import (
     TrendItem,
 )
 from brin_hotspot.config import DatabaseSettings
-from brin_hotspot.ingestion.clustering import ClusteringProjection
+from brin_hotspot.ingestion.clustering import ClusteringMethod, ClusteringProjection
 
 HotspotKind = Literal["pixel", "cluster"]
 
@@ -110,9 +110,14 @@ class ReadOnlyHotspotRepository:
         bbox: tuple[float, float, float, float] | None = None,
         limit: int | None = None,
         cluster_projection: ClusteringProjection = "latitude_adjusted",
+        cluster_method: ClusteringMethod = "distance",
     ) -> list[dict[str, Any]]:
         table = "hotspot_pixel" if kind == "pixel" else "hotspot_cluster"
         id_column = "hid" if kind == "pixel" else "cid"
+        footprint_fields = (
+            "ST_AsGeoJSON(footprint_geom), footprint_area_m2, pixel_count"
+            if kind == "cluster" else "NULL, NULL, NULL"
+        )
         query = f"""
             SELECT
                 {id_column},
@@ -127,7 +132,8 @@ class ReadOnlyHotspotRepository:
                 source_station,
                 observed_at,
                 source_file,
-                scene_id
+                scene_id,
+                {footprint_fields}
             FROM {table}
         """
         where, params = _hotspot_filters(
@@ -140,6 +146,7 @@ class ReadOnlyHotspotRepository:
             kecamatan=kecamatan,
             bbox=bbox,
             cluster_projection=cluster_projection if kind == "cluster" else None,
+            cluster_method=cluster_method if kind == "cluster" else None,
         )
         if where:
             query += " WHERE " + " AND ".join(where)
@@ -170,6 +177,7 @@ class ReadOnlyHotspotRepository:
         kecamatan: str | None = None,
         bbox: tuple[float, float, float, float] | None = None,
         cluster_projection: ClusteringProjection = "latitude_adjusted",
+        cluster_method: ClusteringMethod = "distance",
     ) -> int:
         table = "hotspot_pixel" if kind == "pixel" else "hotspot_cluster"
         query = f"SELECT count(*)::int FROM {table}"
@@ -183,6 +191,7 @@ class ReadOnlyHotspotRepository:
             kecamatan=kecamatan,
             bbox=bbox,
             cluster_projection=cluster_projection if kind == "cluster" else None,
+            cluster_method=cluster_method if kind == "cluster" else None,
         )
         if where:
             query += " WHERE " + " AND ".join(where)
@@ -207,6 +216,7 @@ class ReadOnlyHotspotRepository:
         kecamatan: str | None = None,
         limit: int = 20,
         cluster_projection: ClusteringProjection = "latitude_adjusted",
+        cluster_method: ClusteringMethod = "distance",
     ) -> HotspotStatisticsResponse:
         table = "hotspot_pixel" if kind == "pixel" else "hotspot_cluster"
         if kecamatan:
@@ -236,6 +246,7 @@ class ReadOnlyHotspotRepository:
             kecamatan=kecamatan,
             bbox=None,
             cluster_projection=cluster_projection if kind == "cluster" else None,
+            cluster_method=cluster_method if kind == "cluster" else None,
         )
         query = f"""
             SELECT {group_expression} AS {group_alias},
@@ -281,6 +292,7 @@ class ReadOnlyHotspotRepository:
         kabupaten: str | None = None,
         kecamatan: str | None = None,
         cluster_projection: ClusteringProjection = "latitude_adjusted",
+        cluster_method: ClusteringMethod = "distance",
     ) -> HotspotTrendResponse:
         table = "hotspot_pixel" if kind == "pixel" else "hotspot_cluster"
         where, params = _hotspot_filters(
@@ -293,6 +305,7 @@ class ReadOnlyHotspotRepository:
             kecamatan=kecamatan,
             bbox=None,
             cluster_projection=cluster_projection if kind == "cluster" else None,
+            cluster_method=cluster_method if kind == "cluster" else None,
         )
         query = f"""
             SELECT observed_at::date AS observed_date,
@@ -624,6 +637,7 @@ def _hotspot_filters(
     kecamatan: str | None,
     bbox: tuple[float, float, float, float] | None,
     cluster_projection: ClusteringProjection | None = None,
+    cluster_method: ClusteringMethod | None = None,
 ) -> tuple[list[str], list[Any]]:
     where: list[str] = []
     params: list[Any] = []
@@ -642,6 +656,9 @@ def _hotspot_filters(
     if cluster_projection is not None:
         where.append("cluster_projection = %s")
         params.append(cluster_projection)
+    if cluster_method is not None:
+        where.append("cluster_method = %s")
+        params.append(cluster_method)
     for column, value in (
         ("provinsi", province),
         ("kabupaten", kabupaten),
@@ -652,7 +669,10 @@ def _hotspot_filters(
             params.append(value)
     if bbox:
         west, south, east, north = bbox
-        where.append("coordinate::geometry && ST_MakeEnvelope(%s, %s, %s, %s, 4326)")
+        spatial_column = (
+            "footprint_geom" if cluster_method == "adjacent" else "coordinate::geometry"
+        )
+        where.append(f"{spatial_column} && ST_MakeEnvelope(%s, %s, %s, %s, 4326)")
         params.extend([west, south, east, north])
     return where, params
 
@@ -672,11 +692,16 @@ def _hotspot_feature(*, kind: HotspotKind, id_column: str, row) -> dict[str, Any
         observed_at,
         source_file,
         scene_id,
+        footprint_json,
+        footprint_area_m2,
+        pixel_count,
     ) = row
     return {
         "type": "Feature",
         "id": f"{kind}-{identifier}",
-        "geometry": {"type": "Point", "coordinates": [longitude, latitude]},
+        "geometry": json.loads(footprint_json) if footprint_json else {
+            "type": "Point", "coordinates": [longitude, latitude]
+        },
         "properties": {
             id_column: identifier,
             "kind": kind,
@@ -690,6 +715,10 @@ def _hotspot_feature(*, kind: HotspotKind, id_column: str, row) -> dict[str, Any
             "observed_at": observed_at.isoformat() if observed_at else None,
             "source_file": source_file,
             "scene_id": scene_id,
+            "center_longitude": longitude,
+            "center_latitude": latitude,
+            "pixel_count": pixel_count,
+            "footprint_area_m2": footprint_area_m2,
         },
     }
 

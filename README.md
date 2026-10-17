@@ -131,7 +131,7 @@ Operationally, SNPP, NOAA20, AQUA, and TERA therefore converge into the same dat
 - `source_files.source_key` stores the stable production file or scene identity used to skip duplicates across different input roots.
 - `ingestion_runs` records each command or worker cycle run.
 - `hotspot_pixel` stores individual detections.
-- `hotspot_cluster` stores clustered hotspot groups. The `cluster_projection` field stores the projection variant used to build the cluster.
+- `hotspot_cluster` stores clustered hotspot groups. `cluster_projection` identifies the coordinate projection; `cluster_method` identifies distance or adjacent-footprint grouping.
 - Administrative enrichment fields are updated on conflict, so replaying completed sources after reference-data import can backfill province, kabupaten, and kecamatan values.
 
 ## Cluster Projection Variants
@@ -143,7 +143,9 @@ Supported `hotspot_cluster.cluster_projection` values:
 - `epsg4087`: WGS 84 / World Equidistant Cylindrical projection. The frontend selects this variant by default for cluster visualization because it is a defined CRS and provides a stable comparison frame across Indonesia.
 - `latitude_adjusted`: a fast equirectangular meters approximation. Longitude is scaled by `cos(latitude)` before Euclidean neighbor distance is measured.
 
-The `latitude_adjusted` method is retained for operational comparison with earlier runs, but it should be treated as an approximation rather than a geometrically exact local projection. The current implementation scales absolute longitude by each detection's latitude, which can introduce longitude-dependent distortion when points differ in latitude. A future scene-local equirectangular variant should subtract a local reference longitude and latitude before applying the meter scale. EPSG:4087 is also an approximation, but it is explicit, reproducible, and better suited as the frontend's default comparison method.
+The `latitude_adjusted` projection uses one reference latitude per source scene to avoid introducing longitude-dependent distortion when points differ in latitude. It remains an approximation. EPSG:4087 is the frontend's default distance comparison projection; `local_utm` is used for adjacent-footprint grouping and area calculation.
+
+The `distance` cluster method joins centers less than twice the nominal pixel width apart and displays a centroid circle enclosing its detected pixels. The `adjacent` method uses a scene-local UTM projection to join touching nominal pixel squares within one source scene. Its stored multipolygon is the union of 375 m squares for VIIRS (or the configured nominal width for other satellites), with overlaps counted once. `footprint_area_m2` is **approximate active-fire detection footprint area**, not burned area. Existing pixel archives can be materialized after migration with `hotspot admin materialize-clusters --cluster-projection local_utm --cluster-method adjacent`.
 
 References:
 
@@ -157,7 +159,7 @@ If using the prepared pyenv virtual environment:
 
 ```bash
 pyenv activate hotspot
-python -m pip install -e ".[dev]"
+python -m pip install -e ".[dev,geo]"
 hotspot --help
 ```
 
@@ -633,7 +635,7 @@ Frontend access and features:
 Map and filter features:
 
 - basemap switcher between OpenStreetMap street tiles and ESRI World Imagery satellite tiles
-- cluster/pixel mode switching
+- cluster/pixel mode switching, with centroid-circle and connected-footprint cluster views
 - minimum-confidence filter
 - date-only from/to filters
 - quick date presets for the last 24 hours and last 7 days, which update the from/to date fields
@@ -641,9 +643,9 @@ Map and filter features:
 - automatic zoom to selected province, kota/kabupaten, or kecamatan
 - satellite toggles that show or hide matching hotspots on the map
 - selected-region highlighting with non-selected hotspots greyed out
-- zoom-aware square hotspot footprints for pixel and cluster visualization
+- nominal square pixel symbols, centroid circles, and connected-footprint polygons
 - stacked bar chart for hotspot counts by administrative level and selected satellites
-- hotspot inspector "Load satellite scene": any signed-in role sees a 50 km fire false-colour image (VIIRS I4/I2/I1 or MODIS 22/2/1) rendered by GeoCatalog from the ground-station pass; Mage, Sage and God also get raw files and NASA acquisition, with Mage paying tokens
+- hotspot inspector "Load satellite scene": any signed-in role sees a roughly 50 km fire false-colour preview rendered by GeoCatalog from the ground-station pass; Mage, Sage and God also get raw files and NASA acquisition, with Mage paying tokens
 - daily trend line chart for hotspot counts by selected satellites plus total
 
 The frontend also works with mock data when the API is unavailable, which keeps UI development possible before a local database is populated.

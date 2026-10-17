@@ -8,6 +8,7 @@ import {
   mockTrend
 } from "./mockData";
 import type {
+  ClusterMethod,
   ClusterProjection,
   HotspotCollection,
   HotspotKind,
@@ -29,6 +30,7 @@ const API_BASE = import.meta.env.VITE_HOTSPOT_API_BASE ?? "/api/v1";
 export type HotspotFilters = {
   kind: HotspotKind;
   clusterProjection: ClusterProjection;
+  clusterMethod: ClusterMethod;
   satellites: string[];
   minConfidence: number;
   observedFrom: string;
@@ -132,6 +134,7 @@ function hotspotParams(filters: HotspotFilters) {
     min_confidence: String(filters.minConfidence),
     cluster_projection: filters.clusterProjection
   });
+  params.set("cluster_method", filters.clusterMethod);
   filters.satellites.forEach((satellite) => params.append("satellite", satellite));
   appendIfPresent(params, "observed_from", toApiDateTime(filters.observedFrom));
   appendIfPresent(params, "observed_to", toApiDateTime(filters.observedTo, true));

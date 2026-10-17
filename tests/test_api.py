@@ -3,6 +3,7 @@ from datetime import datetime
 from fastapi.testclient import TestClient
 
 from brin_hotspot.api.app import create_app, get_geocatalog_client, get_repository
+from brin_hotspot.api.repository import _hotspot_feature
 from brin_hotspot.api.schemas import (
     HotspotStatisticsResponse,
     HotspotTrendResponse,
@@ -117,6 +118,31 @@ class FakeRepository:
 
     def location_bounds(self, **kwargs):
         return {"bbox": (100.0, -2.0, 101.0, -1.0)}
+
+
+def test_adjacent_cluster_method_reaches_repository():
+    repository = FakeRepository()
+    app = create_app()
+    app.dependency_overrides[get_repository] = lambda: repository
+    response = TestClient(app).get(
+        "/api/v1/hotspots?kind=cluster&satellite=snpp&cluster_projection=local_utm"
+        "&cluster_method=adjacent"
+    )
+    assert response.status_code == 200
+    assert repository.hotspot_kwargs["cluster_method"] == "adjacent"
+
+
+def test_adjacent_cluster_feature_includes_geometry_and_footprint_area():
+    footprint = (
+        '{"type":"MultiPolygon","coordinates":[[[[104,-2],[104.1,-2],'
+        '[104.1,-1.9],[104,-1.9],[104,-2]]]]}'
+    )
+    row = (1, "snpp", -1.95, 104.05, 8, None, None, None, 300, "Parepare",
+           datetime(2026, 10, 6), "source.txt", "scene", footprint, 281250.0, 2)
+    feature = _hotspot_feature(kind="cluster", id_column="cid", row=row)
+    assert feature["geometry"]["type"] == "MultiPolygon"
+    assert feature["properties"]["footprint_area_m2"] == 281250.0
+    assert feature["properties"]["center_longitude"] == 104.05
 
 
 def test_api_exposes_read_only_hotspot_endpoints():

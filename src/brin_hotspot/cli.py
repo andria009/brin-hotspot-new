@@ -646,9 +646,13 @@ def materialize_clusters_command(
         str,
         typer.Option(
             "--cluster-projection",
-            help="Cluster projection variant to materialize: latitude_adjusted or epsg4087.",
+            help="Cluster projection: latitude_adjusted, epsg4087, or local_utm.",
         ),
     ] = "epsg4087",
+    method: Annotated[
+        str,
+        typer.Option("--cluster-method", help="Cluster method: distance or adjacent."),
+    ] = "distance",
     satellites: Annotated[
         list[str] | None,
         typer.Option("--satellite", help="Satellite to include. Repeatable."),
@@ -668,24 +672,30 @@ def materialize_clusters_command(
 ) -> None:
     """Materialize stored cluster rows from existing pixels for one projection variant."""
 
-    from brin_hotspot.ingestion.clustering import ClusteringProjection
+    from brin_hotspot.ingestion.clustering import ClusteringMethod, ClusteringProjection
     from brin_hotspot.repositories.hotspot_repository import HotspotRepository
 
-    allowed = {"latitude_adjusted", "epsg4087"}
+    allowed = {"latitude_adjusted", "epsg4087", "local_utm"}
     if projection not in allowed:
         typer.echo(f"--cluster-projection must be one of: {', '.join(sorted(allowed))}", err=True)
+        raise typer.Exit(2)
+    if method not in {"distance", "adjacent"}:
+        typer.echo("--cluster-method must be distance or adjacent", err=True)
         raise typer.Exit(2)
 
     settings = _bootstrap()
     repository = HotspotRepository(settings.hotspot_database)
     cluster_count = repository.materialize_cluster_projection(
         cluster_projection=cast(ClusteringProjection, projection),
+        cluster_method=cast(ClusteringMethod, method),
         satellites=tuple(satellite.lower() for satellite in satellites or ()),
         observed_from=observed_from,
         observed_to=observed_to,
         min_confidence=min_confidence,
     )
-    typer.echo(f"ok cluster_projection={projection} clusters={cluster_count}")
+    typer.echo(
+        f"ok cluster_projection={projection} cluster_method={method} clusters={cluster_count}"
+    )
 
 
 if __name__ == "__main__":

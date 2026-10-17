@@ -9,7 +9,11 @@ import psycopg
 
 from brin_hotspot.config import DatabaseSettings
 from brin_hotspot.domain import AdminLocation, HotspotCluster, HotspotDetection
-from brin_hotspot.ingestion.clustering import ClusteringProjection, cluster_detections
+from brin_hotspot.ingestion.clustering import (
+    ClusteringMethod,
+    ClusteringProjection,
+    cluster_detections,
+)
 from brin_hotspot.satellites.landsat8 import LANDSAT8_SETTINGS
 from brin_hotspot.satellites.modis import AQUA_SETTINGS, TERA_SETTINGS
 from brin_hotspot.satellites.snpp import NOAA20_SETTINGS, SNPP_SETTINGS
@@ -64,6 +68,7 @@ class HotspotRepository:
         source_key: str | None = None,
         clusters: list[HotspotCluster],
         cluster_variants: Mapping[ClusteringProjection, list[HotspotCluster]] | None = None,
+        adjacent_clusters: list[HotspotCluster] | None = None,
         pixel_radius_meters: int,
         source_metadata: dict[Path, tuple[str, datetime]] | None = None,
         finish_run: bool = True,
@@ -94,6 +99,14 @@ class HotspotRepository:
                                 cluster,
                                 cluster_projection=projection,
                             )
+
+                    for cluster in adjacent_clusters or ():
+                        self._insert_cluster(
+                            cursor,
+                            cluster,
+                            cluster_projection="local_utm",
+                            cluster_method="adjacent",
+                        )
 
                     for cluster in default_clusters:
                         cluster_id = self._insert_cluster(
@@ -253,6 +266,7 @@ class HotspotRepository:
         self,
         *,
         cluster_projection: ClusteringProjection,
+        cluster_method: ClusteringMethod = "distance",
         satellites: tuple[str, ...] = (),
         observed_from: datetime | None = None,
         observed_to: datetime | None = None,
@@ -322,12 +336,14 @@ class HotspotRepository:
                             resolution_meters=settings.resolution_meters,
                             neighbor_multiplier=settings.neighbor_multiplier,
                             projection=cluster_projection,
+                            method=cluster_method,
                         )
                         for cluster in clusters:
                             self._insert_cluster(
                                 cursor,
                                 cluster,
                                 cluster_projection=cluster_projection,
+                                cluster_method=cluster_method,
                             )
                             cluster_count += 1
         return cluster_count
@@ -448,62 +464,34 @@ class HotspotRepository:
         cluster: HotspotCluster,
         *,
         cluster_projection: ClusteringProjection = "latitude_adjusted",
+        cluster_method: ClusteringMethod = "distance",
     ) -> int:
         detection = cluster.detections[0]
         # Conflict handling makes replay idempotent while allowing enrichment
         # fields to improve after reference data is imported or corrected.
         cursor.execute(
             """
-            WITH inserted AS (
-                INSERT INTO hotspot_cluster (
-                    satellite,
-                    coordinate,
-                    conf_lvl,
-                    provinsi,
-                    kabupaten,
-                    kecamatan,
-                    radius,
-                    cluster_projection,
-                    source_station,
-                    observed_at,
-                    source_file,
-                    scene_id
-                )
-                VALUES (
-                    %s,
-                    ST_SetSRID(ST_MakePoint(%s, %s), 4326)::geography,
-                    %s,
-                    %s,
-                    %s,
-                    %s,
-                    %s,
-                    %s,
-                    %s,
-                    %s,
-                    %s,
-                    %s
-                )
-                ON CONFLICT (satellite, coordinate, observed_at, cluster_projection) DO UPDATE
-                SET
-                    conf_lvl = EXCLUDED.conf_lvl,
-                    provinsi = COALESCE(EXCLUDED.provinsi, hotspot_cluster.provinsi),
-                    kabupaten = COALESCE(EXCLUDED.kabupaten, hotspot_cluster.kabupaten),
-                    kecamatan = COALESCE(EXCLUDED.kecamatan, hotspot_cluster.kecamatan),
-                    radius = EXCLUDED.radius,
-                    source_station = EXCLUDED.source_station,
-                    source_file = EXCLUDED.source_file,
-                    scene_id = EXCLUDED.scene_id
-                RETURNING cid
+            INSERT INTO hotspot_cluster (
+                satellite, coordinate, conf_lvl, provinsi, kabupaten, kecamatan,
+                radius, cluster_projection, cluster_method, pixel_count,
+                source_station, observed_at, source_file, scene_id
             )
-            SELECT cid FROM inserted
-            UNION ALL
-            SELECT cid
-            FROM hotspot_cluster
-            WHERE satellite = %s
-              AND coordinate = ST_SetSRID(ST_MakePoint(%s, %s), 4326)::geography
-              AND observed_at = %s
-              AND cluster_projection = %s
-            LIMIT 1;
+            VALUES (
+                %s, ST_SetSRID(ST_MakePoint(%s, %s), 4326)::geography,
+                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+            )
+            ON CONFLICT ON CONSTRAINT hotspot_cluster_unique_variant
+            DO UPDATE SET
+                conf_lvl = EXCLUDED.conf_lvl,
+                provinsi = COALESCE(EXCLUDED.provinsi, hotspot_cluster.provinsi),
+                kabupaten = COALESCE(EXCLUDED.kabupaten, hotspot_cluster.kabupaten),
+                kecamatan = COALESCE(EXCLUDED.kecamatan, hotspot_cluster.kecamatan),
+                radius = EXCLUDED.radius,
+                pixel_count = EXCLUDED.pixel_count,
+                source_station = EXCLUDED.source_station,
+                source_file = EXCLUDED.source_file,
+                scene_id = EXCLUDED.scene_id
+            RETURNING cid;
             """,
             (
                 detection.satellite,
@@ -515,21 +503,53 @@ class HotspotRepository:
                 detection.location.kecamatan if detection.location else None,
                 cluster.radius_meters,
                 cluster_projection,
+                cluster_method,
+                len(cluster.detections),
                 detection.source_station,
                 detection.observed_at,
                 str(detection.source_file),
                 detection.scene_id,
-                detection.satellite,
-                cluster.longitude,
-                cluster.latitude,
-                detection.observed_at,
-                cluster_projection,
             ),
         )
         row = cursor.fetchone()
         if row is None:
             raise RuntimeError("Failed to insert or fetch hotspot cluster")
-        return int(row[0])
+        cluster_id = int(row[0])
+        if cluster_method == "adjacent":
+            settings = _SATELLITE_CLUSTER_SETTINGS[detection.satellite]
+            # shortcut: use nominal squares in one UTM zone until pixel corners are available.
+            zone = min(60, max(1, int((cluster.longitude + 180) // 6) + 1))
+            utm_srid = (32600 if cluster.latitude >= 0 else 32700) + zone
+            cursor.execute(
+                """
+                WITH centers AS (
+                    SELECT ST_Transform(
+                        ST_SetSRID(ST_MakePoint(longitude, latitude), 4326), %s
+                    ) AS geom
+                    FROM unnest(%s::double precision[], %s::double precision[])
+                        AS point(longitude, latitude)
+                ), footprint AS (
+                    SELECT ST_UnaryUnion(ST_Collect(ST_MakeEnvelope(
+                        ST_X(geom) - %s, ST_Y(geom) - %s,
+                        ST_X(geom) + %s, ST_Y(geom) + %s, %s
+                    ))) AS geom FROM centers
+                )
+                UPDATE hotspot_cluster AS cluster
+                SET footprint_geom = ST_Multi(ST_Transform(footprint.geom, 4326)),
+                    footprint_area_m2 = ST_Area(footprint.geom)
+                FROM footprint
+                WHERE cluster.cid = %s;
+                """,
+                (
+                    utm_srid,
+                    [item.longitude for item in cluster.detections],
+                    [item.latitude for item in cluster.detections],
+                    *([settings.resolution_meters / 2] * 4),
+                    utm_srid,
+                    cluster_id,
+                ),
+            )
+        return cluster_id
 
     @staticmethod
     def _insert_pixel(

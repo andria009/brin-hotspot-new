@@ -1,5 +1,6 @@
 export type HotspotKind = "cluster" | "pixel";
-export type ClusterProjection = "latitude_adjusted" | "epsg4087";
+export type ClusterProjection = "latitude_adjusted" | "epsg4087" | "local_utm";
+export type ClusterMethod = "distance" | "adjacent";
 
 // These types mirror the FastAPI response schemas. Keep them aligned with
 // src/brin_hotspot/api/schemas.py when adding or renaming API fields.
@@ -25,7 +26,7 @@ export type OperationalSummary = {
 };
 
 export type HotspotFeature = GeoJSON.Feature<
-  GeoJSON.Point,
+  GeoJSON.Point | GeoJSON.MultiPolygon,
   {
     kind: HotspotKind;
     satellite: string;
@@ -38,11 +39,15 @@ export type HotspotFeature = GeoJSON.Feature<
     observed_at: string | null;
     source_file: string | null;
     scene_id: string | null;
+    center_latitude?: number;
+    center_longitude?: number;
+    pixel_count?: number | null;
+    footprint_area_m2?: number | null;
   }
 >;
 
 export type HotspotCollection = GeoJSON.FeatureCollection<
-  GeoJSON.Point,
+  GeoJSON.Point | GeoJSON.MultiPolygon,
   HotspotFeature["properties"]
 > & {
   // Actual filtered count in the API. It differs from features.length only when
