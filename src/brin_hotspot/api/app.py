@@ -226,6 +226,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             ),
         ] = 100000,
         count_only: bool = False,
+        display: bool = False,
         cluster_projection: Annotated[
             Literal["latitude_adjusted", "epsg4087", "local_utm"],
             Query(),
@@ -260,6 +261,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 limit=limit,
                 cluster_projection=cluster_projection,
                 cluster_method=cluster_method,
+                display=display,
             )
         )
 

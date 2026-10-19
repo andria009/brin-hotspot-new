@@ -535,26 +535,48 @@ class HotspotRepository:
         if cluster_method == "adjacent":
             settings = _SATELLITE_CLUSTER_SETTINGS[detection.satellite]
             # shortcut: use nominal squares in one UTM zone until pixel corners are available.
+            # Display connectors must not change the measured footprint area.
             zone = min(60, max(1, int((cluster.longitude + 180) // 6) + 1))
             utm_srid = (32600 if cluster.latitude >= 0 else 32700) + zone
             cursor.execute(
                 """
                 WITH centers AS (
-                    SELECT ST_Transform(
+                    SELECT row_number() OVER () AS pixel_index,
+                           ST_Transform(
                         ST_SetSRID(ST_MakePoint(longitude, latitude), 4326), %s
                     ) AS geom
                     FROM unnest(%s::double precision[], %s::double precision[])
                         AS point(longitude, latitude)
-                ), footprint AS (
-                    SELECT ST_UnaryUnion(ST_Collect(ST_MakeEnvelope(
+                ), pixels AS (
+                    SELECT ST_MakeEnvelope(
                         ST_X(geom) - %s, ST_Y(geom) - %s,
                         ST_X(geom) + %s, ST_Y(geom) + %s, %s
-                    ))) AS geom FROM centers
+                    ) AS geom FROM centers
+                ), footprint AS (
+                    SELECT ST_UnaryUnion(ST_Collect(geom)) AS geom FROM pixels
+                ), neighbor_pairs AS (
+                    SELECT a.geom AS first_geom, b.geom AS second_geom,
+                           abs(ST_X(a.geom) - ST_X(b.geom)) AS dx,
+                           abs(ST_Y(a.geom) - ST_Y(b.geom)) AS dy
+                    FROM centers AS a JOIN centers AS b ON a.pixel_index < b.pixel_index
+                ), connectors AS (
+                    SELECT ST_Buffer(ST_MakeLine(first_geom, second_geom), %s,
+                                     'endcap=flat') AS geom
+                    FROM neighbor_pairs
+                    WHERE ((%s AND dx < %s AND dy < %s)
+                        OR (NOT %s AND sqrt(
+                            greatest(dx - %s, 0)^2 + greatest(dy - %s, 0)^2
+                        ) <= %s))
+                      AND (dx >= %s OR dy >= %s)
+                ), display AS (
+                    SELECT ST_UnaryUnion(ST_Collect(geom)) AS geom
+                    FROM (SELECT geom FROM pixels UNION ALL SELECT geom FROM connectors) AS parts
                 )
                 UPDATE hotspot_cluster AS cluster
                 SET footprint_geom = ST_Multi(ST_Transform(footprint.geom, 4326)),
+                    display_geom = ST_Multi(ST_Transform(display.geom, 4326)),
                     footprint_area_m2 = ST_Area(footprint.geom)
-                FROM footprint
+                FROM footprint, display
                 WHERE cluster.cid = %s;
                 """,
                 (
@@ -563,6 +585,13 @@ class HotspotRepository:
                     [item.latitude for item in cluster.detections],
                     *([settings.resolution_meters / 2] * 4),
                     utm_srid,
+                    settings.resolution_meters / 2,
+                    detection.satellite in {"snpp", "noaa20"},
+                    *([settings.resolution_meters * 2] * 2),
+                    detection.satellite in {"snpp", "noaa20"},
+                    *([settings.resolution_meters] * 2),
+                    settings.resolution_meters / 2,
+                    *([settings.resolution_meters] * 2),
                     cluster_id,
                 ),
             )

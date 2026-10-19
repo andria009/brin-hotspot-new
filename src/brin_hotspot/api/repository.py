@@ -136,13 +136,17 @@ class ReadOnlyHotspotRepository:
         limit: int | None = None,
         cluster_projection: ClusteringProjection = "latitude_adjusted",
         cluster_method: ClusteringMethod = "distance",
+        display: bool = False,
     ) -> list[dict[str, Any]]:
         table = "hotspot_pixel" if kind == "pixel" else "hotspot_cluster"
         id_column = "hid" if kind == "pixel" else "cid"
-        footprint_fields = (
-            "ST_AsGeoJSON(footprint_geom), footprint_area_m2, pixel_count"
-            if kind == "cluster" else "NULL, NULL, NULL"
+        footprint_geom = (
+            "COALESCE(display_geom, footprint_geom)"
+            if display and kind == "cluster" and cluster_method == "adjacent"
+            else "footprint_geom"
         )
+        footprint_fields = (f"ST_AsGeoJSON({footprint_geom}), footprint_area_m2, pixel_count"
+                            if kind == "cluster" else "NULL, NULL, NULL")
         query = f"""
             SELECT
                 {id_column},

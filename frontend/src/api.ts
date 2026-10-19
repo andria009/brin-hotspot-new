@@ -77,7 +77,8 @@ export async function getLatestObservation(): Promise<string | null> {
 
 export async function getHotspots(
   filters: HotspotFilters,
-  bbox?: HotspotBbox | null
+  bbox?: HotspotBbox | null,
+  display = false
 ): Promise<HotspotCollection> {
   // Avoid an unnecessary API call when the UI state intentionally hides all
   // satellites. The rest of the dashboard can then render an empty map cleanly.
@@ -87,6 +88,7 @@ export async function getHotspots(
   const params = hotspotParams(filters);
   appendLocationFilters(params, filters);
   appendBbox(params, bbox);
+  if (display) params.set("display", "true");
   return getJson(`/hotspots?${params.toString()}`, mockHotspots);
 }
 

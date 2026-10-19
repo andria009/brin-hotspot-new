@@ -137,6 +137,43 @@ def test_adjacent_cluster_method_reaches_repository():
     assert repository.hotspot_kwargs["cluster_method"] == "adjacent"
 
 
+def test_adjacent_display_geometry_is_opt_in(monkeypatch):
+    repository = FakeRepository()
+    app = create_app()
+    app.dependency_overrides[get_repository] = lambda: repository
+    client = TestClient(app)
+    assert client.get(
+        "/api/v1/hotspots?kind=cluster&satellite=snpp&cluster_method=adjacent&display=true"
+    ).status_code == 200
+    assert repository.hotspot_kwargs["display"] is True
+
+    statements = []
+
+    class FakeConnection:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_):
+            pass
+
+        def cursor(self):
+            return self
+
+        def execute(self, query, _params):
+            statements.append(query)
+
+        def fetchall(self):
+            return []
+
+    monkeypatch.setattr("brin_hotspot.api.repository.psycopg.connect",
+                        lambda *_args, **_kwargs: FakeConnection())
+    database_repository = ReadOnlyHotspotRepository(SimpleNamespace(dsn="unused"))
+    database_repository.hotspots(kind="cluster", cluster_method="adjacent", display=True)
+    assert "ST_AsGeoJSON(COALESCE(display_geom, footprint_geom))" in statements[-1]
+    database_repository.hotspots(kind="cluster", cluster_method="adjacent")
+    assert "ST_AsGeoJSON(footprint_geom)" in statements[-1]
+
+
 def test_adjacent_cluster_feature_includes_geometry_and_footprint_area():
     footprint = (
         '{"type":"MultiPolygon","coordinates":[[[[104,-2],[104.1,-2],'

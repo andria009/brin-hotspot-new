@@ -80,7 +80,6 @@ const SATELLITE_PIXEL_SIZE_METERS: Record<string, number> = {
 // so the map and sidebar legend read as one continuous low-to-high risk ramp.
 const CONFIDENCE_VALUES = Array.from({ length: 10 }, (_, index) => index);
 const HOTSPOT_FILL_LAYER = "hotspot-footprints";
-const HOTSPOT_BRIDGE_LAYER = "hotspot-footprint-bridges";
 const HOTSPOT_FOOTPRINT_EDGE_LAYER = "hotspot-footprint-visibility";
 const HOTSPOT_CENTER_LAYER = "hotspot-centers";
 const HOTSPOT_ADJACENT_MARKER_LAYER = "hotspot-adjacent-markers";
@@ -298,18 +297,6 @@ export default function App() {
         data: { type: "FeatureCollection", features: [] }
       });
       mapRef.current?.addLayer({
-        id: HOTSPOT_BRIDGE_LAYER,
-        type: "line",
-        source: "hotspots",
-        filter: ["==", ["get", "is_adjacent_bridge"], true],
-        layout: { "line-cap": "square", "line-join": "miter" },
-        paint: {
-          "line-color": confidenceColorExpression(),
-          "line-opacity": hotspotOpacityExpression("", "", ""),
-          "line-width": ["get", "display_bridge_width_px"]
-        }
-      });
-      mapRef.current?.addLayer({
         id: HOTSPOT_FILL_LAYER,
         type: "fill",
         source: "hotspots",
@@ -355,7 +342,7 @@ export default function App() {
           "circle-stroke-opacity": adjacentMarkerOpacityExpression("", "", "")
         }
       });
-      for (const layer of [HOTSPOT_BRIDGE_LAYER, HOTSPOT_FILL_LAYER, HOTSPOT_FOOTPRINT_EDGE_LAYER,
+      for (const layer of [HOTSPOT_FILL_LAYER, HOTSPOT_FOOTPRINT_EDGE_LAYER,
                            HOTSPOT_CENTER_LAYER, HOTSPOT_ADJACENT_MARKER_LAYER]) {
         mapRef.current?.on("click", layer, (event) => {
           clearScenePreview();
@@ -450,7 +437,7 @@ export default function App() {
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
-    for (const layer of [HOTSPOT_BRIDGE_LAYER, HOTSPOT_FILL_LAYER, HOTSPOT_FOOTPRINT_EDGE_LAYER,
+    for (const layer of [HOTSPOT_FILL_LAYER, HOTSPOT_FOOTPRINT_EDGE_LAYER,
                          HOTSPOT_CENTER_LAYER, HOTSPOT_ADJACENT_MARKER_LAYER]) {
       if (map.getLayer(layer)) {
         map.setLayoutProperty(layer, "visibility", hotspotsHidden ? "none" : "visible");
@@ -510,7 +497,7 @@ export default function App() {
     const hotspotRequestId = ++latestHotspotRequestRef.current;
     const filterRequestId = ++latestFilterRequestRef.current;
     const hotspotRequest = shouldFetchHotspotFeatures(filters, bbox)
-      ? getHotspots(filters, bbox)
+      ? getHotspots(filters, bbox, true)
       : Promise.resolve(emptyHotspotCollection());
     void hotspotRequest.then((data) => {
       if (hotspotRequestId === latestHotspotRequestRef.current) {
@@ -569,7 +556,7 @@ export default function App() {
       return;
     }
     try {
-      const hotspotData = await getHotspots(filters, bbox);
+      const hotspotData = await getHotspots(filters, bbox, true);
       if (hotspotRequestId === latestHotspotRequestRef.current) {
         setHotspots(hotspotData);
         setLoadError("");
@@ -791,10 +778,6 @@ export default function App() {
       hotspotColorExpression(province, kabupaten, kecamatan));
     map.setPaintProperty(HOTSPOT_FOOTPRINT_EDGE_LAYER, "line-opacity",
       hotspotOpacityExpression(province, kabupaten, kecamatan));
-    map.setPaintProperty(HOTSPOT_BRIDGE_LAYER, "line-color",
-      hotspotColorExpression(province, kabupaten, kecamatan));
-    map.setPaintProperty(HOTSPOT_BRIDGE_LAYER, "line-opacity",
-      hotspotOpacityExpression(province, kabupaten, kecamatan));
     map.setPaintProperty(HOTSPOT_ADJACENT_MARKER_LAYER, "circle-color",
       hotspotColorExpression(province, kabupaten, kecamatan));
     for (const property of ["circle-opacity", "circle-stroke-opacity"] as const) {
@@ -913,7 +896,7 @@ export default function App() {
             <p className="helper-text">Circles enclose detected pixels, not fire area; they are enlarged at low zoom for visibility.</p>
           ) : null}
           {kind === "cluster" && clusterMethod === "adjacent" ? (
-            <p className="helper-text">Within a scene, SNPP and NOAA20 footprints with gaps under one pixel width on both axes share a cluster; overlaps merge. Visual bridges fill small gaps, but reported area excludes them. Enlarged low-zoom shapes may appear to overlap.</p>
+            <p className="helper-text">Within a scene, SNPP and NOAA20 footprints with gaps under one pixel width on both axes share a cluster; overlaps merge. Map polygons fill connected gaps, but reported area excludes them. Enlarged low-zoom shapes may appear to overlap.</p>
           ) : null}
           <label className="range-label">
             <span className="range-label-header">
@@ -1701,10 +1684,8 @@ type HotspotFootprintProperties = HotspotFeature["properties"] & {
   is_cluster_extent?: boolean;
   is_cluster_center?: boolean;
   is_adjacent_footprint?: boolean;
-  is_adjacent_bridge?: boolean;
   is_adjacent_marker?: boolean;
   display_stroke_px?: number;
-  display_bridge_width_px?: number;
 };
 
 function hotspotFootprints(
@@ -1713,7 +1694,7 @@ function hotspotFootprints(
   method: ClusterMethod,
   zoom: number
 ): GeoJSON.FeatureCollection<
-  GeoJSON.Point | GeoJSON.Polygon | GeoJSON.MultiPolygon | GeoJSON.LineString,
+  GeoJSON.Point | GeoJSON.Polygon | GeoJSON.MultiPolygon,
   HotspotFootprintProperties
 > {
   return {
@@ -1732,7 +1713,7 @@ function hotspotFootprint(
   method: ClusterMethod,
   zoom: number
 ): GeoJSON.Feature<
-  GeoJSON.Point | GeoJSON.Polygon | GeoJSON.MultiPolygon | GeoJSON.LineString,
+  GeoJSON.Point | GeoJSON.Polygon | GeoJSON.MultiPolygon,
   HotspotFootprintProperties
 >[] {
   if (feature.geometry.type === "MultiPolygon") {
@@ -1756,21 +1737,7 @@ function hotspotFootprint(
           metersPerPixel(latitude, zoom)
       }
     };
-    const bridges: GeoJSON.Feature<GeoJSON.LineString, HotspotFootprintProperties>[] =
-      footprintBridgeSegments(feature.geometry, pixelSizeMeters, latitude,
-        feature.properties.satellite === "snpp" || feature.properties.satellite === "noaa20")
-        .map((coordinates, index): GeoJSON.Feature<GeoJSON.LineString, HotspotFootprintProperties> => ({
-          type: "Feature",
-          id: feature.id === undefined ? undefined : `${feature.id}-bridge-${index}`,
-          geometry: { type: "LineString", coordinates },
-          properties: {
-            ...footprint.properties,
-            is_adjacent_footprint: false,
-            is_adjacent_bridge: true,
-            display_bridge_width_px: 2 * visibleHalfSideMeters / metersPerPixel(latitude, zoom)
-          }
-        }));
-    return [footprint, ...bridges, {
+    return [footprint, {
       type: "Feature",
       id: feature.id === undefined ? undefined : `${feature.id}-marker`,
       geometry: {
@@ -1824,62 +1791,6 @@ function hotspotFootprint(
       coordinates: [circleCoordinates(longitude, latitude, halfSideMeters)]
     }
   }];
-}
-
-function footprintBridgeSegments(
-  geometry: GeoJSON.MultiPolygon,
-  pixelSizeMeters: number,
-  latitude: number,
-  viirs: boolean
-): GeoJSON.Position[][] {
-  if (geometry.coordinates.length < 2) return [];
-  // shortcut: component bounds stand in for pixel edges; use source centers if concave parts misbridge.
-  const boxes = geometry.coordinates.map((polygon) => {
-    const box = { west: Infinity, east: -Infinity, south: Infinity, north: -Infinity };
-    for (const [longitude, lat] of polygon[0]) {
-      box.west = Math.min(box.west, longitude);
-      box.east = Math.max(box.east, longitude);
-      box.south = Math.min(box.south, lat);
-      box.north = Math.max(box.north, lat);
-    }
-    return box;
-  });
-  const longitudeMeters = 111_320 * Math.cos(latitude * Math.PI / 180);
-  const candidates: { left: number; right: number; gap: number; coordinates: GeoJSON.Position[] }[] = [];
-  for (let left = 0; left < boxes.length; left++) {
-    for (let right = left + 1; right < boxes.length; right++) {
-      const a = boxes[left], b = boxes[right];
-      const dx = Math.max(0, a.west - b.east, b.west - a.east) * longitudeMeters;
-      const dy = Math.max(0, a.south - b.north, b.south - a.north) * 111_320;
-      if (viirs ? dx >= pixelSizeMeters * 1.05 || dy >= pixelSizeMeters * 1.05
-        : Math.hypot(dx, dy) > pixelSizeMeters * 0.525) continue;
-      const nearX = (Math.max(a.west, b.west) + Math.min(a.east, b.east)) / 2;
-      const nearY = (Math.max(a.south, b.south) + Math.min(a.north, b.north)) / 2;
-      const clamp = (value: number, low: number, high: number) =>
-        Math.max(low, Math.min(high, value));
-      const coordinates = [
-        [clamp(nearX, a.west, a.east), clamp(nearY, a.south, a.north)],
-        [clamp(nearX, b.west, b.east), clamp(nearY, b.south, b.north)]
-      ];
-      if (coordinates[0][0] === coordinates[1][0] &&
-          coordinates[0][1] === coordinates[1][1]) continue;
-      candidates.push({ left, right, gap: dx * dx + dy * dy, coordinates });
-    }
-  }
-  candidates.sort((a, b) => a.gap - b.gap);
-  const parent = boxes.map((_, index) => index);
-  const root = (index: number): number => {
-    while (parent[index] !== index) index = parent[index] = parent[parent[index]];
-    return index;
-  };
-  const bridges: GeoJSON.Position[][] = [];
-  for (const candidate of candidates) {
-    const left = root(candidate.left), right = root(candidate.right);
-    if (left === right) continue;
-    parent[right] = left;
-    bridges.push(candidate.coordinates);
-  }
-  return bridges;
 }
 
 function minimumVisibleHalfSideMeters(latitude: number, zoom: number) {

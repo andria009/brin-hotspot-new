@@ -7,6 +7,34 @@ from brin_hotspot.domain import HotspotCluster, HotspotDetection
 from brin_hotspot.repositories.hotspot_repository import HotspotRepository
 
 
+def test_adjacent_cluster_stores_connected_display_polygon_and_nominal_area():
+    statements = []
+
+    class FakeCursor:
+        def execute(self, query, params):
+            assert query.count("%s") == len(params)
+            statements.append(query)
+
+        def fetchone(self):
+            return (1,)
+
+    detection = HotspotDetection(
+        latitude=-2, longitude=104, confidence=8, observed_at=datetime(2026, 10, 16, 6),
+        satellite="snpp", source_file=Path("scene.txt"), scene_id="scene",
+        source_station="Parepare",
+    )
+    neighbor = HotspotDetection(
+        latitude=-2, longitude=104.005, confidence=8,
+        observed_at=detection.observed_at, satellite="snpp",
+        source_file=detection.source_file, scene_id="scene", source_station="Parepare",
+    )
+    cluster = HotspotCluster(-2, 104.0025, 8, 600, (detection, neighbor))
+    HotspotRepository._insert_cluster(FakeCursor(), cluster, cluster_method="adjacent")
+    assert "display_geom = ST_Multi(ST_Transform(display.geom, 4326))" in statements[-1]
+    assert "footprint_area_m2 = ST_Area(footprint.geom)" in statements[-1]
+    assert "ST_Buffer(ST_MakeLine(first_geom, second_geom)" in statements[-1]
+
+
 def test_adjacent_materialization_replaces_only_selected_satellite_and_dates(monkeypatch):
     statements = []
 

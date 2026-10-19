@@ -72,6 +72,7 @@ CREATE TABLE IF NOT EXISTS hotspot_cluster (
     cluster_projection text NOT NULL DEFAULT 'latitude_adjusted',
     cluster_method text NOT NULL DEFAULT 'distance',
     footprint_geom geometry(MultiPolygon, 4326),
+    display_geom geometry(MultiPolygon, 4326),
     footprint_area_m2 double precision,
     pixel_count integer,
     source_station text,
