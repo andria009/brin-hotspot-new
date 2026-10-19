@@ -263,6 +263,37 @@ button {
   gap: 6px;
 }
 
+.province-search {
+  align-items: center;
+  border: 1px solid #d5e0e8;
+  border-radius: 8px;
+  color: #627184;
+  display: flex;
+  gap: 7px;
+  padding: 7px 9px;
+}
+
+.province-search input {
+  border: 0;
+  font: inherit;
+  min-width: 0;
+  outline: 0;
+  width: 100%;
+}
+
+.province-chart-row {
+  background: transparent;
+  border: 0;
+  padding: 0;
+  text-align: left;
+  width: 100%;
+}
+
+.province-chart-row:not(:disabled) { cursor: pointer; }
+.province-chart-row:disabled { opacity: 1; }
+.province-chart-row[aria-pressed="true"] .chart-row-label span { color: #b7192b; }
+.province-chart-row:focus-visible { outline: 2px solid #b7192b; outline-offset: 3px; }
+
 .chart-row-label {
   align-items: baseline;
   display: grid;
@@ -712,7 +743,7 @@ button {
 .trend-day-values {
   display: grid;
   gap: 8px;
-  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  grid-template-columns: 1fr;
 }
 
 .trend-day {
@@ -723,6 +754,18 @@ button {
   gap: 5px;
   padding: 7px 8px;
 }
+
+.trend-day summary { cursor: pointer; }
+.trend-day summary::marker { color: #b7192b; }
+.trend-day-platforms {
+  display: flex;
+  gap: 14px;
+  overflow-x: auto;
+  padding-top: 5px;
+  white-space: nowrap;
+}
+.trend-day-platforms > span { font-size: 11px; font-weight: 800; }
+.trend-day .confidence-table-wrap { margin-top: 10px; }
 
 .confidence-table-wrap {
   overflow-x: auto;
@@ -748,13 +791,11 @@ button {
   white-space: nowrap;
 }
 
-.confidence-table th:first-child,
-.confidence-table th:nth-child(2),
-.confidence-table td:nth-child(2) {
+.confidence-table th:first-child {
   text-align: left;
 }
 
-.trend-day strong {
+.trend-day summary strong {
   align-items: baseline;
   color: #142333;
   display: flex;
@@ -763,20 +804,9 @@ button {
   justify-content: space-between;
 }
 
-.trend-day strong span {
+.trend-day summary strong span {
   color: #6a7888;
   font-weight: 700;
-}
-
-.trend-day div {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 3px 8px;
-}
-
-.trend-day div span {
-  font-size: 10px;
-  font-weight: 800;
 }
 
 .basemap-switch {

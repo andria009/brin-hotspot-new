@@ -31,6 +31,10 @@ class OperationalSummary(BaseModel):
     source_statuses: list[SourceStatusSummary]
 
 
+class LatestObservationResponse(BaseModel):
+    latest_observed_at: datetime | None = None
+
+
 class IngestionRunResponse(BaseModel):
     id: str
     satellite: str

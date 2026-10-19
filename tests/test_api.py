@@ -9,6 +9,7 @@ from brin_hotspot.api.schemas import (
     HotspotStatisticsResponse,
     HotspotTrendResponse,
     IngestionRunResponse,
+    LatestObservationResponse,
     LocationOptionsResponse,
     OperationalSummary,
     SatelliteSummary,
@@ -37,6 +38,9 @@ class FakeRepository:
                 SourceStatusSummary(satellite="snpp", status="completed", count=1)
             ],
         )
+
+    def latest_observation(self):
+        return LatestObservationResponse(latest_observed_at=datetime(2026, 4, 27, 5, 30))
 
     def hotspots(self, **kwargs):
         self.hotspot_kwargs = kwargs
@@ -158,10 +162,17 @@ def test_api_exposes_read_only_hotspot_endpoints():
     assert summary["satellites"][0]["satellite"] == "snpp"
     assert summary["satellites"][0]["pixels"] == 3
 
+    latest = client.get("/api/v1/latest-observation").json()
+    assert latest["latest_observed_at"] == "2026-04-27T05:30:00"
+
     hotspots = client.get("/api/v1/hotspots?kind=cluster&satellite=snpp").json()
     assert hotspots["type"] == "FeatureCollection"
     assert hotspots["total"] == 2501
     assert hotspots["features"][0]["geometry"]["coordinates"] == [120.5, -2.5]
+
+    count_only = client.get("/api/v1/hotspots?kind=cluster&count_only=true").json()
+    assert count_only["total"] == 2501
+    assert count_only["features"] == []
 
     runs = client.get("/api/v1/runs").json()
     assert runs[0]["status"] == "completed"

@@ -23,6 +23,7 @@ import { type PointerEvent, useEffect, useMemo, useRef, useState } from "react";
 import {
   getHotspots,
   getHotspotTotal,
+  getLatestObservation,
   getLocationBounds,
   getLocations,
   getRuns,
@@ -104,11 +105,14 @@ export default function App() {
   const defaultDateInitializedRef = useRef(false);
   const viewportRefreshTimeoutRef = useRef<number | null>(null);
   const latestHotspotRequestRef = useRef(0);
+  const latestFilterRequestRef = useRef(0);
   const filtersRef = useRef<HotspotFilters | null>(null);
   const [summary, setSummary] = useState<OperationalSummary | null>(null);
   const [hotspots, setHotspots] = useState<HotspotCollection | null>(null);
   const [statistics, setStatistics] = useState<HotspotStatistics | null>(null);
   const [trend, setTrend] = useState<HotspotTrend | null>(null);
+  const [trendProvince, setTrendProvince] = useState("");
+  const [provinceSearch, setProvinceSearch] = useState("");
   const [runs, setRuns] = useState<IngestionRun[]>([]);
   const [sources, setSources] = useState<SourceFile[]>([]);
   const [kind, setKind] = useState<HotspotKind>("cluster");
@@ -151,6 +155,7 @@ export default function App() {
   const [access, setAccess] = useState<SharedAccess | null>(null);
   const [accessRole, setAccessRole] = useState<"explorer" | "mage" | "sage">("explorer");
   const [accessError, setAccessError] = useState("");
+  const [loadError, setLoadError] = useState("");
   const [accessLoading, setAccessLoading] = useState(true);
   const activeFilters = useMemo<HotspotFilters>(
     () => ({
@@ -354,8 +359,33 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    void refresh();
+    void refreshOperational();
+  }, []);
+
+  useEffect(() => {
+    if (defaultDateInitializedRef.current || observedFrom || observedTo) {
+      void refresh();
+    }
   }, [activeFilters]);
+
+  useEffect(() => {
+    if (!defaultDateInitializedRef.current && !observedFrom && !observedTo) return;
+    let current = true;
+    const timeout = window.setTimeout(() => {
+      void getTrend({ ...activeFilters, province: trendProvince || province })
+        .then((data) => { if (current) setTrend(data); })
+        .catch((error) => {
+          console.error("Could not load daily trend", error);
+          if (current) setTrend(null);
+        });
+    }, trendProvince ? 250 : 0);
+    return () => { current = false; window.clearTimeout(timeout); };
+  }, [activeFilters, trendProvince]);
+
+  useEffect(() => {
+    setProvinceSearch("");
+    setTrendProvince("");
+  }, [province]);
 
   useEffect(() => {
     filtersRef.current = activeFilters;
@@ -413,66 +443,91 @@ export default function App() {
     return () => window.removeEventListener("keydown", cancelSelection);
   }, [bboxSelection.active]);
 
-  async function refresh() {
+  function initializeDefaultDate(latestDate: string | undefined) {
+    if (!defaultDateInitializedRef.current &&
+        !filtersRef.current?.observedFrom && !filtersRef.current?.observedTo && latestDate) {
+      defaultDateInitializedRef.current = true;
+      setObservedFrom(latestDate);
+      setObservedTo(latestDate);
+    }
+  }
+
+  function refreshOperational() {
+    void getLatestObservation().then((value) => {
+      initializeDefaultDate(value?.slice(0, 10));
+    }).catch((error) => console.error("Could not load latest observation", error));
+    void getSources().then(setSources)
+      .catch((error) => console.error("Could not load source files", error));
+    void getRuns().then(setRuns).catch((error) => console.error("Could not load runs", error));
+    void getSummary().then((data) => {
+      setSummary(data);
+      initializeDefaultDate(latestAvailableDate(data));
+    }).catch((error) => {
+      console.error("Could not load summary", error);
+      setLoadError("Summary is unavailable. Try Refresh.");
+    });
+  }
+
+  function refresh() {
     const filters = activeFilters;
     const bbox = currentMapBbox();
     const hotspotRequestId = ++latestHotspotRequestRef.current;
+    const filterRequestId = ++latestFilterRequestRef.current;
     const hotspotRequest = shouldFetchHotspotFeatures(filters, bbox)
       ? getHotspots(filters, bbox)
       : Promise.resolve(emptyHotspotCollection());
-    const [
-      summaryData,
-      hotspotData,
-      clusterTotal,
-      pixelTotal,
-      statisticData,
-      trendData,
-      runData,
-      sourceData
-    ] = await Promise.all([
-      getSummary(),
-      hotspotRequest,
-      getHotspotTotal(filters, "cluster"),
-      getHotspotTotal(filters, "pixel"),
-      getStatistics(filters),
-      getTrend(filters),
-      getRuns(),
-      getSources()
-    ]);
-    setSummary(summaryData);
-    // On first load, focus the dashboard on the last day with available data
-    // instead of the wall-clock current date, which may not have ingested data.
-    if (!defaultDateInitializedRef.current && !observedFrom && !observedTo) {
-      const latestDate = latestAvailableDate(summaryData);
-      if (latestDate) {
-        defaultDateInitializedRef.current = true;
-        setObservedFrom(latestDate);
-        setObservedTo(latestDate);
+    void hotspotRequest.then((data) => {
+      if (hotspotRequestId === latestHotspotRequestRef.current) {
+        setHotspots(data);
+        setLoadError("");
       }
+    }).catch((error) => {
+      console.error("Could not load hotspots", error);
+      if (hotspotRequestId === latestHotspotRequestRef.current) {
+        setHotspots(emptyHotspotCollection());
+        setLoadError("Hotspots are unavailable. Try Refresh.");
+      }
+    });
+    for (const totalKind of ["cluster", "pixel"] as const) {
+      void getHotspotTotal(filters, totalKind).then((total) => {
+        if (filterRequestId === latestFilterRequestRef.current) {
+          setCurrentCounts((counts) => ({ ...counts,
+            [totalKind === "cluster" ? "clusters" : "pixels"]: total }));
+        }
+      }).catch((error) => {
+        console.error(`Could not load ${totalKind} total`, error);
+        if (filterRequestId === latestFilterRequestRef.current) {
+          setCurrentCounts((counts) => ({ ...counts,
+            [totalKind === "cluster" ? "clusters" : "pixels"]: 0 }));
+        }
+      });
     }
-    if (hotspotRequestId === latestHotspotRequestRef.current) {
-      setHotspots(hotspotData);
-    }
-    setCurrentCounts({ clusters: clusterTotal, pixels: pixelTotal });
-    setStatistics(statisticData);
-    setTrend(trendData);
-    setRuns(runData);
-    setSources(sourceData);
+    void getStatistics(filters).then((data) => {
+      if (filterRequestId === latestFilterRequestRef.current) setStatistics(data);
+    }).catch((error) => {
+      console.error("Could not load statistics", error);
+      if (filterRequestId === latestFilterRequestRef.current) setStatistics(null);
+    });
   }
 
   async function refreshLocations(selectedProvince: string, selectedKabupaten: string) {
-    setLocations(await getLocations(selectedProvince, selectedKabupaten));
+    try {
+      setLocations(await getLocations(selectedProvince, selectedKabupaten));
+    } catch (error) {
+      console.error("Could not load locations", error);
+    }
   }
 
   async function zoomToSelectedLocation() {
     if (!province && !kabupaten && !kecamatan) {
       return;
     }
-    const response = await getLocationBounds(province, kabupaten, kecamatan);
-    if (!response.bbox) {
-      return;
+    try {
+      const response = await getLocationBounds(province, kabupaten, kecamatan);
+      if (response.bbox) fitMapToBbox(response.bbox);
+    } catch (error) {
+      console.error("Could not load location bounds", error);
     }
-    fitMapToBbox(response.bbox);
   }
 
   async function refreshViewportHotspots() {
@@ -483,9 +538,18 @@ export default function App() {
       setHotspots(emptyHotspotCollection());
       return;
     }
-    const hotspotData = await getHotspots(filters, bbox);
-    if (hotspotRequestId === latestHotspotRequestRef.current) {
-      setHotspots(hotspotData);
+    try {
+      const hotspotData = await getHotspots(filters, bbox);
+      if (hotspotRequestId === latestHotspotRequestRef.current) {
+        setHotspots(hotspotData);
+        setLoadError("");
+      }
+    } catch (error) {
+      console.error("Could not load viewport hotspots", error);
+      if (hotspotRequestId === latestHotspotRequestRef.current) {
+        setHotspots(emptyHotspotCollection());
+        setLoadError("Hotspots are unavailable. Try Refresh.");
+      }
     }
   }
 
@@ -794,6 +858,7 @@ export default function App() {
             value={formatShort(totals.latest)}
           />
         </section>
+        {loadError && <p className="panel access-error" role="alert">{loadError}</p>}
 
         <section className="panel controls">
           <div className="panel-title">
@@ -946,7 +1011,12 @@ export default function App() {
           >
             <Crosshair size={16} /> Bbox
           </button>
-          <button className="toolbar-button" onClick={() => void refresh()}><RefreshCw size={16} /> Refresh</button>
+          <button className="toolbar-button" onClick={() => {
+            void refreshOperational();
+            void refresh();
+            void getTrend({ ...activeFilters, province: trendProvince || province })
+              .then(setTrend).catch((error) => console.error("Could not load daily trend", error));
+          }}><RefreshCw size={16} /> Refresh</button>
           {previewVisible ? (
             <button className="toolbar-button" aria-pressed={hotspotsHidden} onClick={() => setHotspotsHidden((hidden) => !hidden)}>
               {hotspotsHidden ? "Show" : "Hide"} hotspot {kind === "cluster" ? "clusters" : "pixels"}
@@ -1025,9 +1095,19 @@ export default function App() {
                 province={province}
                 kabupaten={kabupaten}
                 kecamatan={kecamatan}
+                provinceSearch={provinceSearch}
+                selectedProvince={trendProvince}
+                onProvinceSearch={(value) => {
+                  setProvinceSearch(value);
+                  setTrendProvince(value ? `%${value}%` : "");
+                }}
+                onProvinceSelect={(value) => {
+                  setProvinceSearch(value);
+                  setTrendProvince(value);
+                }}
               />
               <TrendPanel kind={kind} trend={trend} satellites={satellites}
-                minConfidence={minConfidence} />
+                province={trendProvince ? provinceSearch : province} />
             </div>
           </section>
         )}
@@ -1268,7 +1348,11 @@ function StatisticsPanel({
   satellites,
   province,
   kabupaten,
-  kecamatan
+  kecamatan,
+  provinceSearch,
+  selectedProvince,
+  onProvinceSearch,
+  onProvinceSelect
 }: {
   kind: HotspotKind;
   statistics: HotspotStatistics | null;
@@ -1276,8 +1360,14 @@ function StatisticsPanel({
   province: string;
   kabupaten: string;
   kecamatan: string;
+  provinceSearch: string;
+  selectedProvince: string;
+  onProvinceSearch: (value: string) => void;
+  onProvinceSelect: (value: string) => void;
 }) {
-  const items = statistics?.items ?? [];
+  const isProvinceLevel = statistics?.level === "province";
+  const items = (statistics?.items ?? []).filter((item) =>
+    !isProvinceLevel || item.label.toLocaleLowerCase().includes(provinceSearch.toLocaleLowerCase()));
   const maxTotal = Math.max(...items.map((item) => item.total), 0);
   return (
     <section className="panel statistics-panel">
@@ -1289,6 +1379,14 @@ function StatisticsPanel({
         <strong>{statisticsTitle(statistics?.level, province, kabupaten, kecamatan)}</strong>
         <span>{kind}s by selected satellites</span>
       </div>
+      {isProvinceLevel && (
+        <label className="province-search">
+          <Search size={15} />
+          <input type="search" placeholder="Search provinsi" aria-label="Search provinsi"
+            value={provinceSearch}
+            onChange={(event) => onProvinceSearch(event.target.value)} />
+        </label>
+      )}
       <div className="chart-legend">
         {satellites.map((satellite) => (
           <span key={satellite}>
@@ -1300,13 +1398,16 @@ function StatisticsPanel({
       <div className="stacked-chart">
         {items.length === 0 && <div className="empty-chart">No matching hotspots</div>}
         {items.map((item) => (
-          <div className="chart-row" key={item.label}>
-            <div className="chart-row-label">
+          <button type="button" className="chart-row province-chart-row" key={item.label}
+            aria-pressed={isProvinceLevel && selectedProvince === item.label}
+            disabled={!isProvinceLevel}
+            onClick={() => onProvinceSelect(item.label)}>
+            <span className="chart-row-label">
               <span>{item.label}</span>
               <strong>{formatCount(item.total)}</strong>
-            </div>
-            <div className="chart-track">
-              <div className="chart-stack" style={{ width: `${barWidth(item.total, maxTotal)}%` }}>
+            </span>
+            <span className="chart-track">
+              <span className="chart-stack" style={{ width: `${barWidth(item.total, maxTotal)}%` }}>
                 {satellites.map((satellite) => {
                   const value = item.satellites[satellite] ?? 0;
                   if (value <= 0) {
@@ -1323,9 +1424,9 @@ function StatisticsPanel({
                     />
                   );
                 })}
-              </div>
-            </div>
-            <div className="chart-values">
+              </span>
+            </span>
+            <span className="chart-values">
               {satellites
                 .filter((satellite) => (item.satellites[satellite] ?? 0) > 0)
                 .map((satellite) => (
@@ -1333,8 +1434,8 @@ function StatisticsPanel({
                     {satelliteLabel(satellite)} {formatCount(item.satellites[satellite])}
                   </span>
                 ))}
-            </div>
-          </div>
+            </span>
+          </button>
         ))}
       </div>
     </section>
@@ -1345,15 +1446,19 @@ function TrendPanel({
   kind,
   trend,
   satellites,
-  minConfidence
+  province
 }: {
   kind: HotspotKind;
   trend: HotspotTrend | null;
   satellites: string[];
-  minConfidence: number;
+  province: string;
 }) {
   const items = trend?.items ?? [];
-  const confidenceLevels = CONFIDENCE_VALUES.filter((value) => value >= minConfidence);
+  const confidenceBands = [
+    { label: "Low", values: CONFIDENCE_VALUES.filter((value) => value <= 7) },
+    { label: "Medium", values: [8] },
+    { label: "High", values: [9] }
+  ];
   const satelliteTotals = satellites
     .map((satellite) => ({
       satellite,
@@ -1385,7 +1490,7 @@ function TrendPanel({
       </div>
       <div className="chart-context">
         <strong>{kind}s per day</strong>
-        <span>selected satellites and total</span>
+        <span>{province || "Selected satellites and total"}</span>
       </div>
       <div className="trend-summary">
         <strong>{formatCount(items.reduce((sum, item) => sum + item.total, 0))} total</strong>
@@ -1448,52 +1553,51 @@ function TrendPanel({
                 }))
                 .filter((dailyItem) => dailyItem.total > 0);
               return (
-                <div className="trend-day" key={item.date}>
-                  <strong>
+                <details className="trend-day" key={item.date}>
+                  <summary>
+                    <strong>
                     {formatTrendDate(item.date)}
                     <span>{formatCount(item.total)} total</span>
-                  </strong>
-                  <div>
+                    </strong>
+                    <span className="trend-day-platforms">
                     {dailySatellites.map((dailyItem) => (
                       <span key={dailyItem.satellite} style={{ color: satelliteColor(dailyItem.satellite) }}>
                         {satelliteLabel(dailyItem.satellite)} {formatCount(dailyItem.total)}
                       </span>
                     ))}
+                    </span>
+                  </summary>
+                  <div className="confidence-table-wrap">
+                    <strong>{kind === "pixel" ? "Pixels" : "Clusters"} by confidence</strong>
+                    <table className="confidence-table">
+                      <thead><tr><th scope="col">Platform</th>
+                        {confidenceBands.map((band) => <th scope="col" key={band.label}>{band.label}</th>)}
+                        <th scope="col">Total</th>
+                      </tr></thead>
+                      <tbody>
+                        {[
+                          ...SATELLITES.filter((satellite) => satellites.includes(satellite) &&
+                            (item.satellites[satellite] ?? 0) > 0).map((satellite) => ({
+                            label: satelliteLabel(satellite),
+                            counts: item.satellite_confidences[satellite] ?? {},
+                            total: item.satellites[satellite] ?? 0
+                          })),
+                          { label: "Total", counts: item.confidences, total: item.total }
+                        ].map((row) => (
+                          <tr key={row.label}>
+                            <th scope="row">{row.label}</th>
+                            {confidenceBands.map((band) => <td key={band.label}>
+                              {formatCount(band.values.reduce((sum, value) => sum + (row.counts[value] ?? 0), 0))}
+                            </td>)}
+                            <td>{formatCount(row.total)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
                   </div>
-                </div>
+                </details>
               );
             })}
-          </div>
-          <div className="confidence-table-wrap">
-            <strong>{kind === "pixel" ? "Pixels" : "Clusters"} by confidence and day</strong>
-            <table className="confidence-table">
-              <thead><tr>
-                <th scope="col">Day</th><th scope="col">Platform</th>
-                {confidenceLevels.map((value) => (
-                  <th scope="col" key={value} style={{ color: confidenceColor(value) }}>{value}</th>
-                ))}
-                <th scope="col">Total</th>
-              </tr></thead>
-              <tbody>
-                {items.flatMap((item) => [
-                  { label: "Total", counts: item.confidences, total: item.total },
-                  ...satellites.map((satellite) => ({
-                    label: satelliteLabel(satellite),
-                    counts: item.satellite_confidences[satellite] ?? {},
-                    total: item.satellites[satellite] ?? 0
-                  }))
-                ].map((row) => (
-                  <tr key={`${item.date}-${row.label}`}>
-                    <th scope="row">{formatTrendDate(item.date)}</th>
-                    <td>{row.label}</td>
-                    {confidenceLevels.map((value) => (
-                      <td key={value}>{formatCount(row.counts[value] ?? 0)}</td>
-                    ))}
-                    <td>{formatCount(row.total)}</td>
-                  </tr>
-                )))}
-              </tbody>
-            </table>
           </div>
         </>
       )}
@@ -2006,7 +2110,8 @@ function formatCount(value: number) {
 function formatTrendDate(value: string) {
   return new Intl.DateTimeFormat("id-ID", {
     day: "2-digit",
-    month: "short"
+    month: "short",
+    year: "numeric"
   }).format(new Date(`${value}T00:00:00`));
 }
 

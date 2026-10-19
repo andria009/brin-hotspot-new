@@ -112,6 +112,9 @@ CREATE INDEX IF NOT EXISTS hotspot_cluster_footprint_idx
 CREATE INDEX IF NOT EXISTS hotspot_cluster_projection_observed_at_idx
     ON hotspot_cluster (cluster_projection, observed_at);
 
+CREATE INDEX IF NOT EXISTS hotspot_cluster_method_projection_date_satellite_idx
+    ON hotspot_cluster (cluster_method, cluster_projection, observed_at, satellite);
+
 CREATE INDEX IF NOT EXISTS hotspot_pixel_coordinate_idx
     ON hotspot_pixel USING gist (coordinate);
 
@@ -120,6 +123,9 @@ CREATE INDEX IF NOT EXISTS hotspot_pixel_cluster_id_idx
 
 CREATE INDEX IF NOT EXISTS hotspot_pixel_satellite_observed_at_idx
     ON hotspot_pixel (satellite, observed_at);
+
+CREATE INDEX IF NOT EXISTS hotspot_pixel_latest_enriched_idx
+    ON hotspot_pixel (observed_at DESC) WHERE provinsi IS NOT NULL;
 
 CREATE INDEX IF NOT EXISTS prov_ar_geom_idx
     ON prov_ar USING gist (geom);

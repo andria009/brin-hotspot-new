@@ -15,6 +15,7 @@ from brin_hotspot.api.schemas import (
     HotspotStatisticsResponse,
     HotspotTrendResponse,
     IngestionRunResponse,
+    LatestObservationResponse,
     LocationBoundsResponse,
     LocationOptionsResponse,
     OperationalSummary,
@@ -192,6 +193,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     def summary(repository: Annotated[ReadOnlyHotspotRepository, Depends(get_repository)]):
         return repository.summary()
 
+    @app.get("/api/v1/latest-observation", response_model=LatestObservationResponse)
+    def latest_observation(
+        repository: Annotated[ReadOnlyHotspotRepository, Depends(get_repository)],
+    ):
+        return repository.latest_observation()
+
     @app.get("/api/v1/hotspots", response_model=GeoJsonFeatureCollection)
     def hotspots(
         repository: Annotated[ReadOnlyHotspotRepository, Depends(get_repository)],
@@ -218,6 +225,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 ),
             ),
         ] = 100000,
+        count_only: bool = False,
         cluster_projection: Annotated[
             Literal["latitude_adjusted", "epsg4087", "local_utm"],
             Query(),
@@ -239,7 +247,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 cluster_projection=cluster_projection,
                 cluster_method=cluster_method,
             ),
-            features=repository.hotspots(
+            features=[] if count_only else repository.hotspots(
                 kind=kind,
                 satellites=satellites,
                 observed_from=observed_from,

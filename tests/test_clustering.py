@@ -47,6 +47,14 @@ def test_adjacent_mode_uses_actual_diagonal_gap():
                                   projection="latitude_adjusted", method="adjacent")) == 2
 
 
+def test_viirs_adjacent_mode_matches_close_center_neighbors():
+    first = parse_snpp_file(find_snpp_files("tests/fixtures/snpp")[0])[0]
+    diagonal = replace(first, latitude=first.latitude + 500 / 111_320,
+                       longitude=first.longitude + 500 / 111_320)
+    assert len(cluster_detections([first, diagonal], resolution_meters=375,
+                                  projection="latitude_adjusted", method="adjacent")) == 1
+
+
 @pytest.mark.parametrize("satellite", ["snpp", "noaa20"])
 def test_viirs_adjacent_mode_joins_cardinal_gaps_and_overlaps(satellite):
     first = replace(parse_snpp_file(find_snpp_files("tests/fixtures/snpp")[0])[0],

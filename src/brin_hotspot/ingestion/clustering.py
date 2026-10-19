@@ -130,11 +130,7 @@ def _build_neighbor_graph(
             right = points[right_index]
             dx, dy = abs(left[0] - right[0]), abs(left[1] - right[1])
             if method == "adjacent" and viirs_cardinal_neighbors:
-                connected = (
-                    dx <= resolution_meters and dy < 2 * resolution_meters
-                ) or (
-                    dy <= resolution_meters and dx < 2 * resolution_meters
-                )
+                connected = dx**2 + dy**2 < threshold**2
             elif method == "adjacent":
                 connected = sqrt(
                     max(dx - resolution_meters, 0)**2 +

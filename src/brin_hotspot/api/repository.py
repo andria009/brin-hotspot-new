@@ -12,6 +12,7 @@ from brin_hotspot.api.schemas import (
     HotspotStatisticsResponse,
     HotspotTrendResponse,
     IngestionRunResponse,
+    LatestObservationResponse,
     LocationBoundsResponse,
     LocationOptionsResponse,
     OperationalSummary,
@@ -31,6 +32,22 @@ class ReadOnlyHotspotRepository:
     def __init__(self, database: DatabaseSettings):
         self._database = database
 
+    def latest_observation(self) -> LatestObservationResponse:
+        with psycopg.connect(self._database.dsn, connect_timeout=5) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute("""
+                    SELECT observed_at FROM hotspot_pixel
+                    WHERE provinsi IS NOT NULL
+                    ORDER BY observed_at DESC LIMIT 1;
+                """)
+                row = cursor.fetchone()
+                if not row:
+                    cursor.execute("""
+                        SELECT max(observed_at) FROM source_files WHERE status = 'completed';
+                    """)
+                    row = cursor.fetchone()
+        return LatestObservationResponse(latest_observed_at=row[0] if row else None)
+
     def summary(self) -> OperationalSummary:
         with psycopg.connect(self._database.dsn, connect_timeout=5) as connection:
             with connection.cursor() as cursor:
@@ -49,7 +66,7 @@ class ReadOnlyHotspotRepository:
                                count(provinsi)::int AS enriched_pixels,
                                max(observed_at) AS latest_observed_at
                         FROM hotspot_pixel
-                        WHERE EXISTS (
+                        WHERE provinsi IS NOT NULL OR EXISTS (
                             SELECT 1 FROM prov_ar AS indonesia
                             WHERE ST_Covers(indonesia.geom, hotspot_pixel.coordinate::geometry)
                         )
@@ -59,10 +76,10 @@ class ReadOnlyHotspotRepository:
                         SELECT satellite, count(*)::int AS clusters
                         FROM hotspot_cluster
                         WHERE cluster_projection = 'latitude_adjusted'
-                          AND EXISTS (
+                          AND (provinsi IS NOT NULL OR EXISTS (
                               SELECT 1 FROM prov_ar AS indonesia
                               WHERE ST_Covers(indonesia.geom, hotspot_cluster.coordinate::geometry)
-                          )
+                          ))
                         GROUP BY satellite
                     )
                     SELECT satellites.satellite,
@@ -434,63 +451,30 @@ class ReadOnlyHotspotRepository:
             with connection.cursor() as cursor:
                 cursor.execute(
                     """
-                    WITH provinces AS (
-                        SELECT provinsi AS name FROM hotspot_pixel WHERE provinsi IS NOT NULL
-                        UNION
-                        SELECT provinsi AS name FROM hotspot_cluster WHERE provinsi IS NOT NULL
-                        UNION
-                        SELECT wa AS name FROM prov_ar WHERE wa IS NOT NULL
-                    )
-                    SELECT DISTINCT name
-                    FROM provinces
-                    ORDER BY name;
+                    SELECT DISTINCT wa FROM prov_ar ORDER BY wa;
                     """
                 )
                 provinces = [row[0] for row in cursor.fetchall()]
                 cursor.execute(
                     """
-                    WITH kabupaten AS (
-                        SELECT provinsi, kabupaten FROM hotspot_pixel
-                        WHERE kabupaten IS NOT NULL
-                        UNION
-                        SELECT provinsi, kabupaten FROM hotspot_cluster
-                        WHERE kabupaten IS NOT NULL
-                        UNION
-                        SELECT prov_ar.wa AS provinsi, kab_kota_ar.wa AS kabupaten
-                        FROM kab_kota_ar
-                        LEFT JOIN prov_ar ON prov_ar.gid = kab_kota_ar.prov_id
-                        WHERE kab_kota_ar.wa IS NOT NULL
-                    )
-                    SELECT DISTINCT kabupaten
-                    FROM kabupaten
-                    WHERE (%s::text IS NULL OR provinsi ILIKE %s)
-                    ORDER BY kabupaten;
+                    SELECT DISTINCT kab_kota_ar.wa
+                    FROM kab_kota_ar
+                    LEFT JOIN prov_ar ON prov_ar.gid = kab_kota_ar.prov_id
+                    WHERE (%s::text IS NULL OR prov_ar.wa ILIKE %s)
+                    ORDER BY kab_kota_ar.wa;
                     """,
                     (province, province),
                 )
                 kabupaten_options = [row[0] for row in cursor.fetchall()]
                 cursor.execute(
                     """
-                    WITH kecamatan AS (
-                        SELECT provinsi, kabupaten, kecamatan FROM hotspot_pixel
-                        WHERE kecamatan IS NOT NULL
-                        UNION
-                        SELECT provinsi, kabupaten, kecamatan FROM hotspot_cluster
-                        WHERE kecamatan IS NOT NULL
-                        UNION
-                        SELECT prov_ar.wa AS provinsi,
-                               kab_kota_ar.wa AS kabupaten,
-                               kec_ar.wa AS kecamatan
-                        FROM kec_ar
-                        LEFT JOIN prov_ar ON prov_ar.gid = kec_ar.prov_id
-                        LEFT JOIN kab_kota_ar ON kab_kota_ar.gid = kec_ar.kab_id
-                        WHERE kec_ar.wa IS NOT NULL
-                    )
-                    SELECT DISTINCT kecamatan
-                    FROM kecamatan
-                    WHERE (%s::text IS NULL OR provinsi ILIKE %s)
-                      AND (%s::text IS NULL OR kabupaten ILIKE %s)
-                    ORDER BY kecamatan;
+                    SELECT DISTINCT kec_ar.wa
+                    FROM kec_ar
+                    LEFT JOIN prov_ar ON prov_ar.gid = kec_ar.prov_id
+                    LEFT JOIN kab_kota_ar ON kab_kota_ar.gid = kec_ar.kab_id
+                    WHERE (%s::text IS NULL OR prov_ar.wa ILIKE %s)
+                      AND (%s::text IS NULL OR kab_kota_ar.wa ILIKE %s)
+                    ORDER BY kec_ar.wa;
                     """,
                     (province, province, kabupaten, kabupaten),
                 )
@@ -653,8 +637,8 @@ def _hotspot_filters(
     cluster_method: ClusteringMethod | None = None,
 ) -> tuple[list[str], list[Any]]:
     where: list[str] = [
-        "EXISTS (SELECT 1 FROM prov_ar AS indonesia "
-        "WHERE ST_Covers(indonesia.geom, coordinate::geometry))"
+        "(provinsi IS NOT NULL OR EXISTS (SELECT 1 FROM prov_ar AS indonesia "
+        "WHERE ST_Covers(indonesia.geom, coordinate::geometry)))"
     ]
     params: list[Any] = []
     if satellites:

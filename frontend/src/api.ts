@@ -69,6 +69,12 @@ export async function getSummary(): Promise<OperationalSummary> {
   return getJson("/summary", mockSummary);
 }
 
+export async function getLatestObservation(): Promise<string | null> {
+  const response = await getJson<{ latest_observed_at: string | null }>(
+    "/latest-observation", { latest_observed_at: null });
+  return response.latest_observed_at;
+}
+
 export async function getHotspots(
   filters: HotspotFilters,
   bbox?: HotspotBbox | null
@@ -93,7 +99,7 @@ export async function getHotspotTotal(
   }
   const params = hotspotParams({ ...filters, kind });
   appendLocationFilters(params, filters);
-  params.set("limit", "1");
+  params.set("count_only", "true");
   const collection = await getJson(`/hotspots?${params.toString()}`, {
     type: "FeatureCollection",
     total: 0,
@@ -110,7 +116,7 @@ export async function getStatistics(filters: HotspotFilters): Promise<HotspotSta
   }
   const params = hotspotParams(filters);
   appendLocationFilters(params, filters);
-  params.set("limit", "20");
+  params.set("limit", "50");
   return getJson(`/statistics?${params.toString()}`, mockStatistics);
 }
 
@@ -230,10 +236,11 @@ async function getJson<T>(path: string, fallback: T): Promise<T> {
       throw new Error(`${response.status} ${response.statusText}`);
     }
     return (await response.json()) as T;
-  } catch {
+  } catch (error) {
     // Mock fallback keeps UI development and demos usable before the database is
     // populated or when only the frontend dev server is running.
-    return fallback;
+    if (import.meta.env.DEV) return fallback;
+    throw error;
   }
 }
 
