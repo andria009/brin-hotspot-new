@@ -239,6 +239,7 @@ class ReadOnlyHotspotRepository:
         province: str | None = None,
         kabupaten: str | None = None,
         kecamatan: str | None = None,
+        search: str | None = None,
         limit: int = 20,
         cluster_projection: ClusteringProjection = "latitude_adjusted",
         cluster_method: ClusteringMethod = "distance",
@@ -273,6 +274,9 @@ class ReadOnlyHotspotRepository:
             cluster_projection=cluster_projection if kind == "cluster" else None,
             cluster_method=cluster_method if kind == "cluster" else None,
         )
+        if search and level != "satellite":
+            where.append(f"{group_expression} ILIKE %s")
+            params.append(f"%{search.strip()}%")
         query = f"""
             SELECT {group_expression} AS {group_alias},
                    satellite,

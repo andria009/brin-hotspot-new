@@ -122,15 +122,16 @@ def _build_neighbor_graph(
     threshold: float,
     resolution_meters: float,
     method: ClusteringMethod,
-    viirs_cardinal_neighbors: bool,
+    viirs_neighbors: bool,
 ) -> list[set[int]]:
     graph = [set() for _ in points]
     for left_index, left in enumerate(points):
         for right_index in range(left_index + 1, len(points)):
             right = points[right_index]
             dx, dy = abs(left[0] - right[0]), abs(left[1] - right[1])
-            if method == "adjacent" and viirs_cardinal_neighbors:
-                connected = dx**2 + dy**2 < threshold**2
+            if method == "adjacent" and viirs_neighbors:
+                # Each nominal square may have a gap smaller than its width on both axes.
+                connected = dx < 2 * resolution_meters and dy < 2 * resolution_meters
             elif method == "adjacent":
                 connected = sqrt(
                     max(dx - resolution_meters, 0)**2 +

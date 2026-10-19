@@ -276,6 +276,7 @@ button {
 .province-search input {
   border: 0;
   font: inherit;
+  font-size: 13px;
   min-width: 0;
   outline: 0;
   width: 100%;
@@ -755,8 +756,18 @@ button {
   padding: 7px 8px;
 }
 
-.trend-day summary { cursor: pointer; }
-.trend-day summary::marker { color: #b7192b; }
+.trend-day summary { cursor: pointer; list-style: none; }
+.trend-day summary::-webkit-details-marker { display: none; }
+.trend-day-date { align-items: center; color: #142333; display: flex; gap: 4px; }
+.trend-day-date::before {
+  border-bottom: 4px solid transparent;
+  border-left: 6px solid #6a7888;
+  border-top: 4px solid transparent;
+  content: "";
+  flex: none;
+  transition: transform 0.15s;
+}
+.trend-day[open] .trend-day-date::before { transform: rotate(90deg); }
 .trend-day-platforms {
   display: flex;
   gap: 14px;
@@ -804,7 +815,7 @@ button {
   justify-content: space-between;
 }
 
-.trend-day summary strong span {
+.trend-day summary strong > span:last-child {
   color: #6a7888;
   font-weight: 700;
 }

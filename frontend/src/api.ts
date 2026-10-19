@@ -108,7 +108,7 @@ export async function getHotspotTotal(
   return collection.total ?? collection.features.length;
 }
 
-export async function getStatistics(filters: HotspotFilters): Promise<HotspotStatistics> {
+export async function getStatistics(filters: HotspotFilters, search = ""): Promise<HotspotStatistics> {
   // Keep the chart title/grouping stable even when there is no selected
   // satellite data to fetch.
   if (filters.satellites.length === 0) {
@@ -116,6 +116,7 @@ export async function getStatistics(filters: HotspotFilters): Promise<HotspotSta
   }
   const params = hotspotParams(filters);
   appendLocationFilters(params, filters);
+  appendIfPresent(params, "search", search);
   params.set("limit", "50");
   return getJson(`/statistics?${params.toString()}`, mockStatistics);
 }

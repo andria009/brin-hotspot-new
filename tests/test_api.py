@@ -196,6 +196,12 @@ def test_api_exposes_read_only_hotspot_endpoints():
     assert statistics["level"] == "kabupaten"
     assert statistics["items"][0]["satellites"]["snpp"] == 7
 
+    searched = client.get(
+        "/api/v1/statistics?kind=cluster&province=RIAU&search=PELALAWAN"
+    )
+    assert searched.status_code == 200
+    assert repository.statistics_kwargs["search"] == "PELALAWAN"
+
     trend = client.get(
         "/api/v1/trend?kind=cluster&satellite=snpp&satellite=noaa20&province=RIAU"
     ).json()
@@ -264,6 +270,36 @@ def test_trend_counts_confidence_by_day_and_satellite_with_indonesia_filter(monk
     assert item.confidences[8] == 5
     assert item.satellite_confidences["snpp"] == {8: 2, 9: 1}
     assert "ST_Covers(indonesia.geom, coordinate::geometry)" in connection.query
+
+
+def test_statistics_search_filters_each_administrative_level_before_limit(monkeypatch):
+    class FakeConnection:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_):
+            pass
+
+        def cursor(self):
+            return self
+
+        def execute(self, query, params):
+            self.query = query
+            self.params = params
+
+        def fetchall(self):
+            return []
+
+    connection = FakeConnection()
+    monkeypatch.setattr("brin_hotspot.api.repository.psycopg.connect",
+                        lambda *_args, **_kwargs: connection)
+    repository = ReadOnlyHotspotRepository(SimpleNamespace(dsn="unused"))
+    for filters, column in [({}, "provinsi"), ({"province": "Riau"}, "kabupaten"),
+                            ({"province": "Riau", "kabupaten": "Pelalawan"}, "kecamatan")]:
+        repository.statistics(kind="pixel", satellites=["snpp"], search="Tualang", **filters)
+        assert f"{column}, '')" in connection.query
+        assert "ILIKE %s" in connection.query
+        assert connection.params[-1] == "%Tualang%"
 
 
 def test_scene_resolve_proxies_request_to_geocatalog():

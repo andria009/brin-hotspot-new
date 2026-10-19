@@ -274,6 +274,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         province: str | None = None,
         kabupaten: str | None = None,
         kecamatan: str | None = None,
+        search: str | None = None,
         limit: Annotated[int, Query(ge=1, le=50)] = 20,
         cluster_projection: Annotated[
             Literal["latitude_adjusted", "epsg4087", "local_utm"],
@@ -290,6 +291,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             province=province,
             kabupaten=kabupaten,
             kecamatan=kecamatan,
+            search=search,
             limit=limit,
             cluster_projection=cluster_projection,
             cluster_method=cluster_method,

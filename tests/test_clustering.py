@@ -39,9 +39,9 @@ def test_adjacent_mode_keeps_touching_pixels_in_one_cluster():
     assert len(clusters[0].detections) == 2
 
 
-def test_adjacent_mode_uses_actual_diagonal_gap():
+def test_adjacent_mode_keeps_large_diagonal_gap_separate():
     first = parse_snpp_file(find_snpp_files("tests/fixtures/snpp")[0])[0]
-    diagonal = replace(first, latitude=first.latitude + 550 / 111_320,
+    diagonal = replace(first, latitude=first.latitude + 800 / 111_320,
                        longitude=first.longitude + 550 / 111_320)
     assert len(cluster_detections([first, diagonal], resolution_meters=375,
                                   projection="latitude_adjusted", method="adjacent")) == 2
@@ -67,6 +67,20 @@ def test_viirs_adjacent_mode_joins_cardinal_gaps_and_overlaps(satellite):
     clusters = cluster_detections([first, east, further_east, overlap, diagonal],
                                   resolution_meters=375, method="adjacent")
     assert sorted(len(cluster.detections) for cluster in clusters) == [1, 4]
+
+
+@pytest.mark.parametrize("satellite", ["snpp", "noaa20"])
+def test_viirs_adjacent_mode_joins_chained_small_gaps_on_both_axes(satellite):
+    first = replace(parse_snpp_file(find_snpp_files("tests/fixtures/snpp")[0])[0],
+                    satellite=satellite)
+    second = replace(first, latitude=first.latitude + 700 / 111_320,
+                     longitude=first.longitude + 700 / 111_320)
+    third = replace(first, latitude=first.latitude + 1400 / 111_320,
+                    longitude=first.longitude + 1400 / 111_320)
+    clusters = cluster_detections([first, second, third], resolution_meters=375,
+                                  method="adjacent")
+    assert len(clusters) == 1
+    assert len(clusters[0].detections) == 3
 
 
 def test_other_satellites_keep_half_pixel_gap_rule():

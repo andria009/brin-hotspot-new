@@ -110,9 +110,14 @@ export default function App() {
   const [summary, setSummary] = useState<OperationalSummary | null>(null);
   const [hotspots, setHotspots] = useState<HotspotCollection | null>(null);
   const [statistics, setStatistics] = useState<HotspotStatistics | null>(null);
+  const [statisticsRefreshKey, setStatisticsRefreshKey] = useState(0);
   const [trend, setTrend] = useState<HotspotTrend | null>(null);
-  const [trendProvince, setTrendProvince] = useState("");
-  const [provinceSearch, setProvinceSearch] = useState("");
+  const [statisticsSearch, setStatisticsSearch] = useState("");
+  const [trendSelection, setTrendSelection] = useState<{
+    level: "province" | "kabupaten" | "kecamatan";
+    value: string;
+    label: string;
+  } | null>(null);
   const [runs, setRuns] = useState<IngestionRun[]>([]);
   const [sources, setSources] = useState<SourceFile[]>([]);
   const [kind, setKind] = useState<HotspotKind>("cluster");
@@ -183,6 +188,10 @@ export default function App() {
       kecamatan
     ]
   );
+  const trendFilters = useMemo<HotspotFilters>(() => {
+    if (!trendSelection) return activeFilters;
+    return { ...activeFilters, [trendSelection.level]: trendSelection.value };
+  }, [activeFilters, trendSelection]);
 
   // Latest comes from the operational summary; the count cards are refreshed
   // from filtered API totals so they represent the current date/filters.
@@ -372,20 +381,34 @@ export default function App() {
     if (!defaultDateInitializedRef.current && !observedFrom && !observedTo) return;
     let current = true;
     const timeout = window.setTimeout(() => {
-      void getTrend({ ...activeFilters, province: trendProvince || province })
+      void getTrend(trendFilters)
         .then((data) => { if (current) setTrend(data); })
         .catch((error) => {
           console.error("Could not load daily trend", error);
           if (current) setTrend(null);
         });
-    }, trendProvince ? 250 : 0);
+    }, trendSelection?.value.startsWith("%") ? 250 : 0);
     return () => { current = false; window.clearTimeout(timeout); };
-  }, [activeFilters, trendProvince]);
+  }, [trendFilters]);
 
   useEffect(() => {
-    setProvinceSearch("");
-    setTrendProvince("");
-  }, [province]);
+    setStatisticsSearch("");
+    setTrendSelection(null);
+  }, [province, kabupaten, kecamatan]);
+
+  useEffect(() => {
+    if (!defaultDateInitializedRef.current && !observedFrom && !observedTo) return;
+    let current = true;
+    const timeout = window.setTimeout(() => {
+      void getStatistics(activeFilters, statisticsSearch)
+        .then((data) => { if (current) setStatistics(data); })
+        .catch((error) => {
+          console.error("Could not load statistics", error);
+          if (current) setStatistics(null);
+        });
+    }, statisticsSearch ? 250 : 0);
+    return () => { current = false; window.clearTimeout(timeout); };
+  }, [activeFilters, statisticsSearch, statisticsRefreshKey]);
 
   useEffect(() => {
     filtersRef.current = activeFilters;
@@ -502,12 +525,6 @@ export default function App() {
         }
       });
     }
-    void getStatistics(filters).then((data) => {
-      if (filterRequestId === latestFilterRequestRef.current) setStatistics(data);
-    }).catch((error) => {
-      console.error("Could not load statistics", error);
-      if (filterRequestId === latestFilterRequestRef.current) setStatistics(null);
-    });
   }
 
   async function refreshLocations(selectedProvince: string, selectedKabupaten: string) {
@@ -879,7 +896,7 @@ export default function App() {
             <p className="helper-text">Circles enclose detected pixels, not fire area; they are enlarged at low zoom for visibility.</p>
           ) : null}
           {kind === "cluster" && clusterMethod === "adjacent" ? (
-            <p className="helper-text">Within a scene, SNPP and NOAA20 footprints with left/right/up/down gaps under one pixel width share a cluster; overlaps merge. Area excludes gaps. Enlarged low-zoom shapes may appear to overlap.</p>
+            <p className="helper-text">Within a scene, SNPP and NOAA20 footprints with gaps under one pixel width on both axes share a cluster; overlaps merge. Area excludes gaps. Enlarged low-zoom shapes may appear to overlap.</p>
           ) : null}
           <label className="range-label">
             <span className="range-label-header">
@@ -1014,7 +1031,8 @@ export default function App() {
           <button className="toolbar-button" onClick={() => {
             void refreshOperational();
             void refresh();
-            void getTrend({ ...activeFilters, province: trendProvince || province })
+            setStatisticsRefreshKey((key) => key + 1);
+            void getTrend(trendFilters)
               .then(setTrend).catch((error) => console.error("Could not load daily trend", error));
           }}><RefreshCw size={16} /> Refresh</button>
           {previewVisible ? (
@@ -1095,19 +1113,25 @@ export default function App() {
                 province={province}
                 kabupaten={kabupaten}
                 kecamatan={kecamatan}
-                provinceSearch={provinceSearch}
-                selectedProvince={trendProvince}
-                onProvinceSearch={(value) => {
-                  setProvinceSearch(value);
-                  setTrendProvince(value ? `%${value}%` : "");
+                search={statisticsSearch}
+                selectedValue={trendSelection?.value ?? ""}
+                onSearch={(value) => {
+                  setStatisticsSearch(value);
+                  const level = statistics?.level;
+                  if (level && level !== "satellite") {
+                    setTrendSelection(value ? { level, value: `%${value}%`, label: value } : null);
+                  }
                 }}
-                onProvinceSelect={(value) => {
-                  setProvinceSearch(value);
-                  setTrendProvince(value);
+                onSelect={(value) => {
+                  setStatisticsSearch(value);
+                  const level = statistics?.level;
+                  if (level && level !== "satellite") {
+                    setTrendSelection({ level, value, label: value });
+                  }
                 }}
               />
               <TrendPanel kind={kind} trend={trend} satellites={satellites}
-                province={trendProvince ? provinceSearch : province} />
+                location={trendSelection?.label || kecamatan || kabupaten || province} />
             </div>
           </section>
         )}
@@ -1349,10 +1373,10 @@ function StatisticsPanel({
   province,
   kabupaten,
   kecamatan,
-  provinceSearch,
-  selectedProvince,
-  onProvinceSearch,
-  onProvinceSelect
+  search,
+  selectedValue,
+  onSearch,
+  onSelect
 }: {
   kind: HotspotKind;
   statistics: HotspotStatistics | null;
@@ -1360,14 +1384,15 @@ function StatisticsPanel({
   province: string;
   kabupaten: string;
   kecamatan: string;
-  provinceSearch: string;
-  selectedProvince: string;
-  onProvinceSearch: (value: string) => void;
-  onProvinceSelect: (value: string) => void;
+  search: string;
+  selectedValue: string;
+  onSearch: (value: string) => void;
+  onSelect: (value: string) => void;
 }) {
-  const isProvinceLevel = statistics?.level === "province";
-  const items = (statistics?.items ?? []).filter((item) =>
-    !isProvinceLevel || item.label.toLocaleLowerCase().includes(provinceSearch.toLocaleLowerCase()));
+  const isAdministrativeLevel = statistics?.level !== "satellite";
+  const searchLabel = statistics?.level === "kabupaten" ? "Search kota/kabupaten"
+    : statistics?.level === "kecamatan" ? "Search kecamatan" : "Search provinsi";
+  const items = statistics?.items ?? [];
   const maxTotal = Math.max(...items.map((item) => item.total), 0);
   return (
     <section className="panel statistics-panel">
@@ -1379,12 +1404,12 @@ function StatisticsPanel({
         <strong>{statisticsTitle(statistics?.level, province, kabupaten, kecamatan)}</strong>
         <span>{kind}s by selected satellites</span>
       </div>
-      {isProvinceLevel && (
+      {isAdministrativeLevel && (
         <label className="province-search">
           <Search size={15} />
-          <input type="search" placeholder="Search provinsi" aria-label="Search provinsi"
-            value={provinceSearch}
-            onChange={(event) => onProvinceSearch(event.target.value)} />
+          <input type="search" placeholder={searchLabel} aria-label={searchLabel}
+            value={search}
+            onChange={(event) => onSearch(event.target.value)} />
         </label>
       )}
       <div className="chart-legend">
@@ -1399,9 +1424,9 @@ function StatisticsPanel({
         {items.length === 0 && <div className="empty-chart">No matching hotspots</div>}
         {items.map((item) => (
           <button type="button" className="chart-row province-chart-row" key={item.label}
-            aria-pressed={isProvinceLevel && selectedProvince === item.label}
-            disabled={!isProvinceLevel}
-            onClick={() => onProvinceSelect(item.label)}>
+            aria-pressed={isAdministrativeLevel && selectedValue === item.label}
+            disabled={!isAdministrativeLevel}
+            onClick={() => onSelect(item.label)}>
             <span className="chart-row-label">
               <span>{item.label}</span>
               <strong>{formatCount(item.total)}</strong>
@@ -1446,12 +1471,12 @@ function TrendPanel({
   kind,
   trend,
   satellites,
-  province
+  location
 }: {
   kind: HotspotKind;
   trend: HotspotTrend | null;
   satellites: string[];
-  province: string;
+  location: string;
 }) {
   const items = trend?.items ?? [];
   const confidenceBands = [
@@ -1490,7 +1515,7 @@ function TrendPanel({
       </div>
       <div className="chart-context">
         <strong>{kind}s per day</strong>
-        <span>{province || "Selected satellites and total"}</span>
+        <span>{location || "Selected satellites and total"}</span>
       </div>
       <div className="trend-summary">
         <strong>{formatCount(items.reduce((sum, item) => sum + item.total, 0))} total</strong>
@@ -1556,8 +1581,8 @@ function TrendPanel({
                 <details className="trend-day" key={item.date}>
                   <summary>
                     <strong>
-                    {formatTrendDate(item.date)}
-                    <span>{formatCount(item.total)} total</span>
+                      <span className="trend-day-date">{formatTrendDate(item.date)}</span>
+                      <span>{formatCount(item.total)} total</span>
                     </strong>
                     <span className="trend-day-platforms">
                     {dailySatellites.map((dailyItem) => (
@@ -1571,7 +1596,9 @@ function TrendPanel({
                     <strong>{kind === "pixel" ? "Pixels" : "Clusters"} by confidence</strong>
                     <table className="confidence-table">
                       <thead><tr><th scope="col">Platform</th>
-                        {confidenceBands.map((band) => <th scope="col" key={band.label}>{band.label}</th>)}
+                        {confidenceBands.map((band, index) =>
+                          <th scope="col" key={band.label}
+                            style={{ color: confidenceColor(index + 7) }}>{band.label}</th>)}
                         <th scope="col">Total</th>
                       </tr></thead>
                       <tbody>
