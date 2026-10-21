@@ -331,20 +331,24 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.get("/api/v1/runs", response_model=list[IngestionRunResponse])
     def runs(
+        request: Request,
         repository: Annotated[ReadOnlyHotspotRepository, Depends(get_repository)],
         satellite: str | None = None,
         status: str | None = None,
         limit: Annotated[int, Query(ge=1, le=200)] = 50,
     ) -> Sequence[IngestionRunResponse]:
+        require_operational_access(request)
         return repository.runs(satellite=satellite, status=status, limit=limit)
 
     @app.get("/api/v1/source-files", response_model=list[SourceFileResponse])
     def source_files(
+        request: Request,
         repository: Annotated[ReadOnlyHotspotRepository, Depends(get_repository)],
         satellite: str | None = None,
         status: str | None = None,
         limit: Annotated[int, Query(ge=1, le=200)] = 50,
     ) -> Sequence[SourceFileResponse]:
+        require_operational_access(request)
         return repository.source_files(satellite=satellite, status=status, limit=limit)
 
     @app.get("/api/v1/locations", response_model=LocationOptionsResponse)
@@ -374,12 +378,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         request: Request,
         client: Annotated[GeoCatalogClient, Depends(get_geocatalog_client)],
     ) -> dict:
-        if resolved_settings.oidc_enabled:
-            user_token, identity = request_identity(request)
-            # Any role gets the map preview; GeoCatalog keeps raw files and acquisition to Mage+.
-            require_application_role(identity, "explorer")
-        else:
-            user_token = None
+        if not resolved_settings.oidc_enabled:
+            raise HTTPException(
+                status_code=503, detail="Hotspot OIDC must be enabled for scene access"
+            )
+        user_token, identity = request_identity(request)
+        # Any role gets the map preview; GeoCatalog keeps raw files and acquisition to Mage+.
+        require_application_role(identity, "explorer")
         try:
             return client.request_scene(payload.model_dump(mode="json"), user_token=user_token)
         except GeoCatalogError as exc:
@@ -395,6 +400,13 @@ def request_identity(request: Request) -> tuple[str, Identity]:
         raise HTTPException(status_code=401, detail="Keycloak login is required")
     settings: Settings = request.app.state.settings
     return token, decode_access_token(token, settings)
+
+
+def require_operational_access(request: Request) -> None:
+    if not request.app.state.settings.oidc_enabled:
+        raise HTTPException(status_code=503, detail="Hotspot OIDC must be enabled for operations")
+    _, identity = request_identity(request)
+    require_application_role(identity, "god")
 
 
 def require_application_role(identity: Identity, minimum_role: str) -> None:

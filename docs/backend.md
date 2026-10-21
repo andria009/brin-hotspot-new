@@ -330,7 +330,9 @@ Generate XYZ tiles:
 hotspot raster tile --input-dir data/input/rasters --output-dir data/output/tiles --zoom 5-12
 ```
 
-Raster support currently indexes metadata and can generate tiles. Hotspot scene overlays do not use these tiles: `POST /api/v1/scenes/resolve` asks GeoCatalog, which renders a fire preview from the ground-station pass (see the GeoCatalog README, "Hotspot fire previews from the ground station").
+Raster support currently indexes metadata and can generate tiles. Hotspot scene overlays do not use these tiles: `POST /api/v1/scenes/resolve` asks GeoCatalog, which renders a fire preview from the ground-station pass (see the GeoCatalog README, "Hotspot fire previews from the ground station"). This endpoint requires an authenticated user with at least the Explorer role and `HOTSPOT_OIDC_ENABLED=true`; it returns 503 when OIDC is disabled.
+
+`GET /api/v1/runs` and `GET /api/v1/source-files` expose ingestion diagnostics and source paths. They require an authenticated Hotspot God role and return 503 when OIDC is disabled.
 
 ## API Layer
 

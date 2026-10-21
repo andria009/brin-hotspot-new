@@ -1,8 +1,6 @@
 import {
   mockHotspots,
   mockLocations,
-  mockRuns,
-  mockSources,
   mockStatistics,
   mockSummary,
   mockTrend
@@ -134,7 +132,7 @@ export async function getTrend(filters: HotspotFilters): Promise<HotspotTrend> {
 }
 
 export async function getRuns(): Promise<IngestionRun[]> {
-  return getJson("/runs?limit=200", mockRuns);
+  return authenticatedJson("/runs?limit=200");
 }
 
 function hotspotParams(filters: HotspotFilters) {
@@ -164,7 +162,7 @@ function appendBbox(params: URLSearchParams, bbox?: HotspotBbox | null) {
 }
 
 export async function getSources(): Promise<SourceFile[]> {
-  return getJson("/source-files?limit=200", mockSources);
+  return authenticatedJson("/source-files?limit=200");
 }
 
 export async function getLocations(province = "", kabupaten = ""): Promise<LocationOptions> {

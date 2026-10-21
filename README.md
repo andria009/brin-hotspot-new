@@ -733,7 +733,7 @@ Copy `.env.example` to `.env` and adjust values for the local environment.
 
 `HOTSPOT_DB_PASSWORD` is required; Compose refuses to start without it. Generate one with `openssl rand -hex 32` before the database volume is first created. Changing it later needs `ALTER ROLE` as well, because PostgreSQL only reads `POSTGRES_PASSWORD` when the volume is empty (see the [system migration note](https://github.com/andria009/brin-geo-keycloak/blob/main/MIGRATION.md#rotate-a-database-password)).
 
-The database (`5432`) and API (`8000`) ports are published on `127.0.0.1` only (`HOTSPOT_PRIVATE_BIND_ADDRESS`). Only the frontend port `8080` listens on the network, for the Caddy proxy. To reach the database from a workstation, use an SSH tunnel:
+The database (`5432`) and API (`8000`) ports are published on `127.0.0.1` only (`HOTSPOT_PRIVATE_BIND_ADDRESS`). The frontend port `8080` also defaults to loopback. On the public server, set `HOTSPOT_FRONTEND_BIND_ADDRESS=10.28.12.101` so Caddy can reach it over the private interface; keep port `8080` closed on the public firewall. To reach the database from a workstation, use an SSH tunnel:
 
 ```bash
 ssh -L 5432:127.0.0.1:5432 user@10.28.12.101

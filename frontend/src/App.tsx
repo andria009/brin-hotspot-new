@@ -372,6 +372,15 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    if (membership?.role === "god") {
+      void refreshOperational();
+    } else {
+      setRuns([]);
+      setSources([]);
+    }
+  }, [membership?.role]);
+
+  useEffect(() => {
     if (defaultDateInitializedRef.current || observedFrom || observedTo) {
       void refresh();
     }
@@ -479,9 +488,11 @@ export default function App() {
     void getLatestObservation().then((value) => {
       initializeDefaultDate(value?.slice(0, 10));
     }).catch((error) => console.error("Could not load latest observation", error));
-    void getSources().then(setSources)
-      .catch((error) => console.error("Could not load source files", error));
-    void getRuns().then(setRuns).catch((error) => console.error("Could not load runs", error));
+    if (membership?.role === "god") {
+      void getSources().then(setSources)
+        .catch((error) => console.error("Could not load source files", error));
+      void getRuns().then(setRuns).catch((error) => console.error("Could not load runs", error));
+    }
     void getSummary().then((data) => {
       setSummary(data);
       initializeDefaultDate(latestAvailableDate(data));

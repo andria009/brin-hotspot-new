@@ -325,7 +325,7 @@ services:
         VITE_KEYCLOAK_CLIENT_ID: ${VITE_KEYCLOAK_CLIENT_ID:-hotspot-new}
     logging: *log-rotation
     ports:
-      - "${HOTSPOT_FRONTEND_PORT:-8080}:80"
+      - "${HOTSPOT_FRONTEND_BIND_ADDRESS:-127.0.0.1}:${HOTSPOT_FRONTEND_PORT:-8080}:80"
     depends_on:
       - api
 

@@ -211,12 +211,6 @@ def test_api_exposes_read_only_hotspot_endpoints():
     assert count_only["total"] == 2501
     assert count_only["features"] == []
 
-    runs = client.get("/api/v1/runs").json()
-    assert runs[0]["status"] == "completed"
-
-    sources = client.get("/api/v1/source-files").json()
-    assert sources[0]["path"] == "source.txt"
-
     locations = client.get(
         "/api/v1/locations?province=SULAWESI%20TEST&kabupaten=LUWU%20TEST"
     ).json()
@@ -339,9 +333,14 @@ def test_statistics_search_filters_each_administrative_level_before_limit(monkey
         assert connection.params[-1] == "%Tualang%"
 
 
-def test_scene_resolve_proxies_request_to_geocatalog():
+def test_scene_resolve_proxies_request_to_geocatalog(monkeypatch):
+    from brin_hotspot.api import app as app_module
+    from brin_hotspot.auth import Identity
+    from brin_hotspot.config import Settings
+
     class FakeGeoCatalogClient:
         def request_scene(self, payload, user_token=None):
+            assert user_token == "explorer-token"
             assert payload["satellite"] == "snpp"
             assert payload["pixel_size_meters"] == 375
             assert payload["acquire"] is False
@@ -353,11 +352,16 @@ def test_scene_resolve_proxies_request_to_geocatalog():
                 "asset_url": "http://localhost:8090/api/v1/datasets/dataset-1/download?ticket=x",
             }
 
-    app = create_app()
+    monkeypatch.setattr(
+        app_module, "decode_access_token",
+        lambda token, _settings: Identity(token, "user@example.test", "User", "explorer"),
+    )
+    app = create_app(Settings(HOTSPOT_OIDC_ENABLED=True))
     app.dependency_overrides[get_geocatalog_client] = FakeGeoCatalogClient
     client = TestClient(app)
     response = client.post(
         "/api/v1/scenes/resolve",
+        headers={"Authorization": "Bearer explorer-token"},
         json={
             "satellite": "snpp",
             "observed_at": "2026-04-27T05:30:00",
@@ -371,6 +375,24 @@ def test_scene_resolve_proxies_request_to_geocatalog():
     assert response.status_code == 200
     assert response.json()["status"] == "ready"
     assert "ticket=x" in response.json()["asset_url"]
+
+
+def test_scene_resolve_does_not_call_geocatalog_when_oidc_is_disabled():
+    from brin_hotspot.config import Settings
+
+    class FakeGeoCatalogClient:
+        def request_scene(self, *_args, **_kwargs):
+            raise AssertionError("A disabled scene endpoint must not contact GeoCatalog")
+
+    app = create_app(Settings(HOTSPOT_OIDC_ENABLED=False))
+    app.dependency_overrides[get_geocatalog_client] = FakeGeoCatalogClient
+    response = TestClient(app).post(
+        "/api/v1/scenes/resolve",
+        json={"satellite": "snpp", "observed_at": "2026-04-27T05:30:00",
+              "longitude": 120.5, "latitude": -2.5, "pixel_size_meters": 375},
+    )
+
+    assert response.status_code == 503
 
 
 def test_scene_resolve_lets_any_signed_in_role_preview(monkeypatch):
@@ -408,6 +430,36 @@ def test_scene_resolve_lets_any_signed_in_role_preview(monkeypatch):
     assert no_role.status_code == 403
     assert explorer.status_code == 200
     assert forwarded == ["explorer-token"]
+
+
+def test_operational_records_require_hotspot_membership(monkeypatch):
+    from brin_hotspot.api import app as app_module
+    from brin_hotspot.auth import Identity
+    from brin_hotspot.config import Settings
+
+    roles = {"explorer-token": "explorer", "god-token": "god"}
+    monkeypatch.setattr(
+        app_module,
+        "decode_access_token",
+        lambda token, _settings: Identity(
+            token, "user@example.test", "User", roles.get(token),
+        ),
+    )
+    app = create_app(Settings(HOTSPOT_OIDC_ENABLED=True))
+    app.dependency_overrides[get_repository] = FakeRepository
+    client = TestClient(app)
+
+    for path in ("/api/v1/runs", "/api/v1/source-files"):
+        assert client.get(path).status_code == 401
+        assert client.get(
+            path, headers={"Authorization": "Bearer no-role-token"}
+        ).status_code == 403
+        assert client.get(
+            path, headers={"Authorization": "Bearer explorer-token"}
+        ).status_code == 403
+        assert client.get(
+            path, headers={"Authorization": "Bearer god-token"}
+        ).status_code == 200
 
 
 def test_cors_allows_only_configured_origins():
