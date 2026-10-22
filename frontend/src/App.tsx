@@ -18,7 +18,7 @@ import {
   Search,
   UserPlus
 } from "lucide-react";
-import maplibregl from "maplibre-gl";
+import * as maplibregl from "maplibre-gl";
 import { type PointerEvent, useEffect, useMemo, useRef, useState } from "react";
 import {
   getHotspots,

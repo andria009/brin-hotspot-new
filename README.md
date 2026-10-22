@@ -761,9 +761,7 @@ Not covered here: source imagery under `/mnt/geomimo-data` (read-only NAS mount)
 Run from the repository directory on the server. Each dump is written to a temporary file first, so a failed dump never replaces a good one:
 
 ```bash
-mkdir -p backups
-docker compose exec -T db pg_dump -U hotspot -Fc hotspot > backups/hotspot.tmp && mv backups/hotspot.tmp backups/hotspot-$(date +%F).dump
-docker compose exec -T db pg_dump -U hotspot -Fc raster > backups/raster.tmp && mv backups/raster.tmp backups/raster-$(date +%F).dump
+make backup
 ```
 
 Check that a dump is readable:
@@ -774,10 +772,10 @@ docker compose exec -T db pg_restore --list < backups/hotspot-$(date +%F).dump |
 
 ### Nightly backups
 
-Add to the deploy user's crontab (`crontab -e`). Cron needs `%` escaped as `\%`. Keeps 14 days:
+Add to the deploy user's crontab (`crontab -e`). `make backup` keeps 14 days by default:
 
 ```cron
-30 1 * * * cd /path/to/hotspot-new && mkdir -p backups && docker compose exec -T db pg_dump -U hotspot -Fc hotspot > backups/hotspot.tmp && mv backups/hotspot.tmp backups/hotspot-$(date +\%F).dump && docker compose exec -T db pg_dump -U hotspot -Fc raster > backups/raster.tmp && mv backups/raster.tmp backups/raster-$(date +\%F).dump && find backups -name '*.dump' -mtime +14 -delete
+30 1 * * * cd /path/to/hotspot-new && make backup >> logs/backup.log 2>&1
 ```
 
 Copy the dumps to another machine as well; a disk failure takes local dumps with it:
@@ -788,42 +786,24 @@ rsync -a backups/ backup-host:/srv/backups/hotspot-new/
 
 ### Restore
 
-Restoring replaces the current databases. Stop every service, then start only the database:
+Restoring replaces both current databases. Check that both dumps have the same date, then run:
 
 ```bash
-docker compose --profile service stop
-docker compose up -d db
+make restore CONFIRM=YES RESTORE_DATE=YYYY-MM-DD
 ```
 
-Recreate and restore each database (replace the dates):
-
-```bash
-docker compose exec -T db dropdb -U hotspot --if-exists hotspot
-docker compose exec -T db createdb -U hotspot hotspot
-docker compose exec -T db pg_restore -U hotspot -d hotspot --no-owner < backups/hotspot-YYYY-MM-DD.dump
-
-docker compose exec -T db dropdb -U hotspot --if-exists raster
-docker compose exec -T db createdb -U hotspot raster
-docker compose exec -T db pg_restore -U hotspot -d raster --no-owner < backups/raster-YYYY-MM-DD.dump
-```
-
-Start everything and check the data:
-
-```bash
-docker compose --profile service up -d
-curl -fsS http://127.0.0.1:8000/api/v1/summary
-```
+The command stops application services, checks both dumps, restores them, then starts and checks the API. Source imagery on the NAS and the `.env` file must be migrated separately.
 
 ## Migrating to a New Server
 
-Hotspot-new should run on the same host as the Keycloak stack. Its `api` service joins the `brin-keycloak_keycloak` Docker network and reaches Keycloak and Access Management by container name, and Caddy reaches the frontend through `host.docker.internal:8080`. When moving the whole system, follow the order in the [system migration note](https://github.com/andria009/brin-geo-keycloak/blob/main/MIGRATION.md).
+Hotspot-new should run on the same host as the Keycloak stack. Its `api` service joins the `brin-keycloak_keycloak` Docker network and reaches Keycloak and Access Management by container name, and Caddy reaches the frontend on the host's private address at port `8080`. When moving the whole system, follow the order in the [system migration note](https://github.com/andria009/brin-geo-keycloak/blob/main/MIGRATION.md).
 
 1. **Prepare the new host.** Install Docker with the Compose plugin and mount `/mnt/geomimo-data` at the same path. Install the GeoMIMO CA certificate (see the Keycloak README). Start the Keycloak stack first.
 2. **Install the same code version.** On the old host, note the commit with `git rev-parse HEAD`. Clone the repository on the new host and check out that commit.
 3. **Copy configuration.** Copy `.env` with `scp` and run `chmod 600 .env`. Optionally `rsync -a data/output/ new-host:/path/to/hotspot-new/data/output/`.
 4. **Freeze the old host and take a final backup.** Run `docker compose --profile service stop` and `docker compose up -d db`, then follow [Take a backup](#take-a-backup). Copy the dumps to the new host's `backups/` directory.
 5. **Restore on the new host.** Start the database with `docker compose up -d db`; the init scripts create empty `hotspot` and `raster` databases. Then follow [Restore](#restore), which drops and recreates them from the dumps.
-6. **Build and start.** Run `docker compose --profile service up -d --build`.
+6. **Build and start.** Run `make deploy`.
 7. **Repoint the proxy.** If the host address changed, update the Caddy site and DNS or hosts entries as described in the system migration note.
 8. **Verify.** Open `https://geomimo-hotspot.brin.go.id`, sign in, and check that `/api/v1/summary` shows recent observations and new ingestion runs appear.
 9. **Keep the old host stopped but intact** for at least a week so you can roll back.
