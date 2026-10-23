@@ -19,6 +19,7 @@ import {
   UserPlus
 } from "lucide-react";
 import * as maplibregl from "maplibre-gl";
+import maplibreWorkerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?url";
 import { type PointerEvent, useEffect, useMemo, useRef, useState } from "react";
 import {
   getHotspots,
@@ -97,6 +98,8 @@ type BboxSelectionState = {
   start: ScreenPoint | null;
   current: ScreenPoint | null;
 };
+
+maplibregl.setWorkerUrl(maplibreWorkerUrl);
 
 export default function App() {
   const mapRef = useRef<maplibregl.Map | null>(null);
