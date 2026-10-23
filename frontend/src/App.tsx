@@ -110,6 +110,7 @@ export default function App() {
   const filtersRef = useRef<HotspotFilters | null>(null);
   const [summary, setSummary] = useState<OperationalSummary | null>(null);
   const [hotspots, setHotspots] = useState<HotspotCollection | null>(null);
+  const [mapReady, setMapReady] = useState(false);
   const [statistics, setStatistics] = useState<HotspotStatistics | null>(null);
   const [statisticsRefreshKey, setStatisticsRefreshKey] = useState(0);
   const [trend, setTrend] = useState<HotspotTrend | null>(null);
@@ -291,7 +292,7 @@ export default function App() {
       }
     });
     mapRef.current.addControl(new maplibregl.NavigationControl({ showCompass: false }), "bottom-right");
-    mapRef.current.on("load", () => {
+    mapRef.current.on("style.load", () => {
       // Hotspots share one source; distance centers render above their translucent extents.
       mapRef.current?.addSource("hotspots", {
         type: "geojson",
@@ -357,6 +358,7 @@ export default function App() {
         });
       }
       mapRef.current?.on("moveend", scheduleViewportHotspotRefresh);
+      setMapReady(true);
       void refreshViewportHotspots();
     });
     return () => {
@@ -438,11 +440,11 @@ export default function App() {
       source.setData(hotspotFootprints(hotspots, kind, clusterMethod,
         mapRef.current?.getZoom() ?? DEFAULT_MAP_ZOOM));
     }
-  }, [hotspots, kind, clusterMethod]);
+  }, [hotspots, kind, clusterMethod, mapReady]);
 
   useEffect(() => {
     updateMapRegionHighlight();
-  }, [province, kabupaten, kecamatan]);
+  }, [province, kabupaten, kecamatan, mapReady]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -453,11 +455,11 @@ export default function App() {
         map.setLayoutProperty(layer, "visibility", hotspotsHidden ? "none" : "visible");
       }
     }
-  }, [hotspotsHidden]);
+  }, [hotspotsHidden, mapReady]);
 
   useEffect(() => {
     updateBasemap();
-  }, [basemap]);
+  }, [basemap, mapReady]);
 
   useEffect(() => {
     window.setTimeout(() => mapRef.current?.resize(), 0);
