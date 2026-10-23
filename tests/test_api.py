@@ -352,6 +352,14 @@ def test_scene_resolve_proxies_request_to_geocatalog(monkeypatch):
                 "asset_url": "http://localhost:8090/api/v1/datasets/dataset-1/download?ticket=x",
             }
 
+    activities = []
+
+    async def record_activity(_settings, token, method, path, *, json_body, activity_secret):
+        activities.append((token, method, path, json_body, activity_secret))
+        return {"recorded": True}
+
+    monkeypatch.setattr(app_module, "access_management_request", record_activity)
+
     monkeypatch.setattr(
         app_module, "decode_access_token",
         lambda token, _settings: Identity(token, "user@example.test", "User", "explorer"),
@@ -375,6 +383,17 @@ def test_scene_resolve_proxies_request_to_geocatalog(monkeypatch):
     assert response.status_code == 200
     assert response.json()["status"] == "ready"
     assert "ticket=x" in response.json()["asset_url"]
+    assert activities[0][1:3] == ("POST", "/activity/hotspot")
+    assert activities[0][3]["activity"] == "hotspot_scene_requested"
+
+    export = client.post(
+        "/api/v1/activity/geojson-export", headers={"Authorization": "Bearer explorer-token"},
+        json={"count": 12},
+    )
+    assert export.status_code == 201
+    assert activities[1][3] == {
+        "activity": "hotspot_geojson_exported", "count": 12
+    }
 
 
 def test_scene_resolve_does_not_call_geocatalog_when_oidc_is_disabled():

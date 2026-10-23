@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+import logging
 from collections.abc import Sequence
 from datetime import datetime
 from typing import Annotated, Literal
@@ -45,6 +47,13 @@ class AccessRequestRejection(BaseModel):
 class WalletAdjustment(BaseModel):
     token_delta: int
     reason: str = Field(min_length=1, max_length=1000)
+
+
+class GeoJsonExport(BaseModel):
+    count: int = Field(ge=0)
+
+
+logger = logging.getLogger(__name__)
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -372,8 +381,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             kecamatan=kecamatan,
         )
 
+    @app.post("/api/v1/activity/geojson-export", status_code=201)
+    async def record_geojson_export(payload: GeoJsonExport, request: Request):
+        token, identity = request_identity(request)
+        require_application_role(identity, "explorer")
+        return await access_management_request(
+            resolved_settings, token, "POST", "/activity/hotspot",
+            json_body={"activity": "hotspot_geojson_exported", "count": payload.count},
+            activity_secret=resolved_settings.activity_secret.get_secret_value(),
+        )
+
     @app.post("/api/v1/scenes/resolve", response_model=SceneResponse)
-    def resolve_scene(
+    async def resolve_scene(
         payload: SceneRequest,
         request: Request,
         client: Annotated[GeoCatalogClient, Depends(get_geocatalog_client)],
@@ -386,9 +405,24 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         # Any role gets the map preview; GeoCatalog keeps raw files and acquisition to Mage+.
         require_application_role(identity, "explorer")
         try:
-            return client.request_scene(payload.model_dump(mode="json"), user_token=user_token)
+            result = await asyncio.to_thread(
+                client.request_scene, payload.model_dump(mode="json"), user_token=user_token
+            )
         except GeoCatalogError as exc:
             raise HTTPException(status_code=502, detail=str(exc)) from exc
+        try:
+            await access_management_request(
+                resolved_settings, user_token, "POST", "/activity/hotspot",
+                json_body={
+                    "activity": "hotspot_scene_requested",
+                    "satellite": payload.satellite, "scene_id": payload.scene_id,
+                    "status": result["status"], "acquire": payload.acquire,
+                },
+                activity_secret=resolved_settings.activity_secret.get_secret_value(),
+            )
+        except HTTPException:
+            logger.warning("Could not record Hotspot scene activity", exc_info=True)
+        return result
 
     return app
 

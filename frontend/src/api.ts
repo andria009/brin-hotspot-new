@@ -211,6 +211,14 @@ export async function requestScene(payload: {
   return (await response.json()) as SceneResponse;
 }
 
+export async function recordGeoJsonExport(count: number): Promise<void> {
+  await authenticatedJson("/activity/geojson-export", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ count })
+  });
+}
+
 async function authenticatedJson<T = unknown>(path: string, init?: RequestInit): Promise<T> {
   const token = await accessToken();
   if (!token) {

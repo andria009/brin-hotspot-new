@@ -71,6 +71,7 @@ async def access_management_request(
     *,
     json_body: dict | None = None,
     params: dict | None = None,
+    activity_secret: str | None = None,
 ) -> dict:
     if not settings.access_management_url:
         raise HTTPException(status_code=503, detail="Access Management is not configured")
@@ -81,7 +82,10 @@ async def access_management_request(
             response = await client.request(
                 method,
                 path,
-                headers={"Authorization": f"Bearer {token}"},
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    **({"X-Hotspot-Activity-Secret": activity_secret} if activity_secret else {}),
+                },
                 json=json_body,
                 params=params,
             )

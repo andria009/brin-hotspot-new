@@ -83,6 +83,7 @@ class Settings(BaseSettings):
     oidc_jwks_url: str = Field(default="", alias="HOTSPOT_OIDC_JWKS_URL")
     oidc_client_id: str = Field(default="hotspot-new", alias="HOTSPOT_OIDC_CLIENT_ID")
     access_management_url: str = Field(default="", alias="HOTSPOT_ACCESS_MANAGEMENT_URL")
+    activity_secret: SecretStr = Field(default=SecretStr(""), alias="HOTSPOT_ACTIVITY_SECRET")
     cors_origins: str = Field(
         default="https://geomimo-hotspot.brin.go.id",
         alias="HOTSPOT_CORS_ORIGINS",

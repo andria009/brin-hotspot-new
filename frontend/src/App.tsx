@@ -33,6 +33,7 @@ import {
   getTrend,
   getAccess,
   requestAccess,
+  recordGeoJsonExport,
   requestScene,
   type SharedAccess,
   type HotspotBbox,
@@ -812,6 +813,9 @@ export default function App() {
       link.download = geoJsonExportName(activeFilters);
       link.click();
       URL.revokeObjectURL(url);
+      await recordGeoJsonExport(filteredHotspots.features.length).catch((error) => {
+        console.warn("Could not record GeoJSON export activity", error);
+      });
     } finally {
       setIsExporting(false);
     }
