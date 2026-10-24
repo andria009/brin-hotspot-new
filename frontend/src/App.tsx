@@ -19,7 +19,7 @@ import {
   UserPlus
 } from "lucide-react";
 import * as maplibregl from "maplibre-gl";
-import maplibreWorkerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?url";
+import maplibreWorkerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url";
 import { type PointerEvent, useEffect, useMemo, useRef, useState } from "react";
 import {
   getHotspots,
